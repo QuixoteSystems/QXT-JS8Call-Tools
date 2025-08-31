@@ -4,7 +4,6 @@
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](#)
 ![OS](https://img.shields.io/badge/OS-Windows%20|%20Linux%20|%20macOS-000000)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/actions/workflows/ci.yml)
 [![Last commit](https://img.shields.io/github/last-commit/QuixoteSystems/QXT-JS8Call-Tools)](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/commits/main)
 
 
