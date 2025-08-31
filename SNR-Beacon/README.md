@@ -74,3 +74,8 @@ Aug 31 16:53:30 quixote-bbs python3[502101]: 2025-08-31 16:53:30,389 INFO TX -> 
 
 ```
 
+
+
+If you like this work:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/M4M81CV1EX)
