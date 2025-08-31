@@ -1,4 +1,5 @@
-# QXT JS8Call
+# QXT JS8Call Tools
+
 QXT JS8Call Tools is a collection of small, service-friendly Python scripts that talk to JS8Call’s JSON API to streamline common tasks and add operator conveniences to run on Linux, Windows and MacOS. 
 
 Scripts:
@@ -7,3 +8,5 @@ Scripts:
 Features: scheduled beacons, group messaging helpers, retry/timeout handling, clean logging.
 
 Requirements: Python 3.8+ (no external dependencies).
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/M4M81CV1EX)
