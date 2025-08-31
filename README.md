@@ -4,8 +4,8 @@
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](#)
 ![OS](https://img.shields.io/badge/OS-Windows%20|%20Linux%20|%20macOS-000000)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/<USER>/<REPO>/actions/workflows/ci.yml/badge.svg)](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/actions/workflows/ci.yml)
-[![Last commit](https://img.shields.io/github/last-commit/<USER>/<REPO>)](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/commits/main)
+[![CI](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/actions/workflows/ci.yml/badge.svg)](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/actions/workflows/ci.yml)
+[![Last commit](https://img.shields.io/github/last-commit/QuixoteSystems/QXT-JS8Call-Tools)](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/commits/main)
 
 
 QXT JS8Call Tools is a collection of small, service-friendly Python scripts that talk to JS8Call’s JSON API to streamline common tasks and add operator conveniences. All tools are cross-platform (Windows/Linux/macOS), use only the Python libraries, and are easy to run under systemd or Windows Task Scheduler.
