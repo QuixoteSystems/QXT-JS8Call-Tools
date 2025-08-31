@@ -15,6 +15,5 @@ Scripts:
 - [SNR-Beacon](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/tree/main/SNR-Beacon): sending periodic SNR? to a group (with an immediate first TX), simple relays, and lightweight logging of activity. 
 
 
-
-
+Support me:
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/M4M81CV1EX)
