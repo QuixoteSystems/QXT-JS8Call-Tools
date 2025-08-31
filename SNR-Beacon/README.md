@@ -3,7 +3,7 @@
 Python Script to send a periodic SNR? to a group (with an immediate first TX), simple relays, and lightweight logging of activity.
 
 ### Installation
-1- Download the whole Repo or just the script QXT-SNR-Beacon
+1- Download the whole Repository (recommended) or just download the script QXT-SNR-Beacon.py
 
 ### Run the script
 2- Simple run with examples parameters:
@@ -20,7 +20,7 @@ python3 QXT-SNR-Beacon.py --group QXTNET --minutes 30 --transport TCP --host 127
   sudo nano /etc/systemd/system/qxt-snr-beacon.service
 ```
 
-3.2- Copy & Paste. You have to write your right path or if it is your home foler change YOUR_USER for your uer name:
+3.2- Copy & Paste this code. But remember that you have to write your right path or if you are using home folder, change YOUR_USER for your user name:
 ```shell
 [Unit]
 Description=QXT JS8Call Tools - SNR Group Beacon
