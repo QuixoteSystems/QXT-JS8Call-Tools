@@ -14,6 +14,7 @@ Requirements: Python 3.8+.
 Scripts:
 - [SNR-Beacon](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/tree/main/SNR-Beacon): sending periodic SNR? to a group (with an immediate first TX), simple relays, and lightweight logging of activity. 
 
+- Telegram-Bridge: sending and receiving messages from your JS8Call station in your Telegram App.
 
 If you like this work:
 
