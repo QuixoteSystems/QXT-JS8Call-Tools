@@ -26,12 +26,12 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 # ===================== CONFIG =====================
 
-TELEGRAM_BOT_TOKEN = "8438015848:AAHRogkCVZnGyH7PGfgkR1uS9Q9tBhY37Hs" # Puedes obtenerlo el token de tu bot (desde @BotFather).
-TELEGRAM_CHAT_ID   = 1065228100  # Reemplaza por tu chat ID (int) el chat ID donde quieres recibir/enviar (p.ej., tu chat privado; puedes obtenerlo hablando >
-MY_CALLSIGN        = "30QXT01"               # Tu indicativo JS8
+TELEGRAM_BOT_TOKEN = "YOUR_TOKEN" # Puedes obtenerlo el token de tu bot (desde @BotFather).
+TELEGRAM_CHAT_ID   = 12345678  # Reemplaza por tu chat ID (int) el chat ID donde quieres recibir/enviar (p.ej., tu chat privado; puedes obtenerlo hablando >
+MY_CALLSIGN        = "EA4ABC"               # Tu indicativo JS8
 MONITORED_GROUPS   = ["@QXTNET"]            # Ejemplo de grupos JS8 que quieres escuchar
 
-JS8_HOST           = "192.168.1.14"
+JS8_HOST           = "127.0.0.1"
 JS8_PORT           = 2442                   # JS8Call API JSON (normalmente 2442)
 TRANSPORT          = "TCP"                  # "TCP" (recomendado) o "UDP"
 
