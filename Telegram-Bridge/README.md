@@ -1,4 +1,4 @@
-
+## QXT Telegram Bridge
 
 It connects to JS8Call’s TCP JSON API and a Telegram bot, forwards any received JS8Call messages addressed to your callsign or your monitored groups to a chosen Telegram chat, and lets you transmit back from Telegram using simple commands:
 
