@@ -1,5 +1,7 @@
 # QXT JS8Call Tools
 
+![Logo](QXT-JS8Call-Tools.png)
+
 <!-- Badges -->
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](#)
 ![OS](https://img.shields.io/badge/OS-Windows%20|%20Linux%20|%20macOS-000000)
