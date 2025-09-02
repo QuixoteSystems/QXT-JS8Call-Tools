@@ -18,6 +18,8 @@ Scripts:
 
 - Telegram-Bridge: sending and receiving messages from your JS8Call station in your Telegram App.
 
+- Frequency-Scheduler: 
+
 If you like this work:
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/M4M81CV1EX)
