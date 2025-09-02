@@ -18,8 +18,9 @@ Scripts:
 
 - Telegram-Bridge: sending and receiving messages from your JS8Call station in your Telegram App.
 
-- Frequency-Scheduler: 
+- Frequency-Scheduler: change the frequency of your radio automacticlly on a scheduled schedule. (Obsiously it needs CAT control configured in JS8Call).
 
+  
 If you like this work:
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/M4M81CV1EX)
