@@ -1,7 +1,7 @@
 
 ## QXT Frecuency Scheduler
 
-It is a small Python utility that automatically changes your JS8Call operating frequency depending on the time of day. It connects to the JS8Call API (default: 127.0.0.1:2442) and sends RIG.SET_FREQ commands to switch between a daytime frequency and a nighttime frequency.
+This is a small Python utility that automatically changes your JS8Call operating frequency depending on the time of day. It connects to the JS8Call API (default: 127.0.0.1:2442) and sends RIG.SET_FREQ commands to switch between a daytime frequency and a nighttime frequency.
 
 This is useful if you want to automate band changes (for example: 40 m at night, 20 m during the day) so that JS8Call follows your schedule without manual intervention.
 
