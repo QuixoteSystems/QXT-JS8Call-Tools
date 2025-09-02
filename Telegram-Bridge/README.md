@@ -10,6 +10,8 @@ It connects to JS8Call’s TCP JSON API and a Telegram bot, forwards any receive
 /last message — reply to the last station
 
 /stations - reply last stations heard
+
+/status - reply the status of the bridge and some info
 ```
 
 It composes the proper JS8 line and triggers transmit, normalizes callsigns/groups, ignores your own transmissions to prevent loops, auto-reconnects to JS8Call, and includes logging for troubleshooting.
