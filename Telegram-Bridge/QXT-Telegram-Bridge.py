@@ -634,6 +634,24 @@ async def poll_qso_text_loop():
         await asyncio.sleep(config.QSO_POLL_SECONDS)
 
 
+# ---- Sondeo periódico del panel derecho (CALL/BAND ACTIVITY) ----
+async def poll_call_activity_loop():
+    """Sondea periódicamente la "pantalla derecha" para poblar STATE.heard.
+    Funciona mejor sobre TCP; en UDP depende de si JS8Call emite las respuestas.
+    """
+    interval = getattr(config, 'CALL_ACTIVITY_POLL_SECONDS', 30)
+    while True:
+        try:
+            if STATE.js8_connected and BRIDGE and BRIDGE.js8:
+                # Solicita la lista de estaciones oídas
+                await BRIDGE.js8.send({"type": "RX.GET_CALL_ACTIVITY", "value": ""})
+                await asyncio.sleep(0.8)
+                # Como respaldo pide la actividad de banda (algunas versiones responden aquí)
+                await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "value": ""})
+        except Exception as e:
+            logger.debug(f"poll_call_activity_loop: {e}")
+        await asyncio.sleep(max(5, int(interval)))
+
 # ------------- Bridge principal (glue code) -------------
 
 class JS8TelegramBridge:
@@ -910,7 +928,9 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago")
 
     header = f"📋 Recently heard (top {min(limit, len(entries))}):"
-    msg = header + "\n" + "\n".join(lines)
+    msg = header + "
+" + "
+".join(lines)
     await update.effective_message.reply_text(msg)
 
 
@@ -1028,9 +1048,10 @@ async def background_js8_connector():
         await asyncio.sleep(5)
 
 async def on_startup(app: Application):
-    # Arranca tarea de conexión JS8
+    # Arranca tareas en segundo plano
     asyncio.create_task(background_js8_connector())
     asyncio.create_task(poll_qso_text_loop())
+    asyncio.create_task(poll_call_activity_loop())
     logger.info("Puente iniciado. Esperando eventos...")
 
 def build_application() -> Application:
