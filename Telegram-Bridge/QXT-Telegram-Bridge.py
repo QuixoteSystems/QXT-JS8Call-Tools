@@ -14,6 +14,7 @@ Comandos en Telegram:
   /last mensaje                 -> Responde al último corresponsal recibido
   /status                       -> Estado del puente
   /heartbeat                    -> Send Heartbeat to the General Net
+  /hb                           -> Send Heartbeat to the General Net
   /stations                     -> Reply last stations heared
 """
 import time
@@ -912,10 +913,9 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         snr_txt = f"SNR {snr:+d}" if isinstance(snr, int) else ""
         lines.append(f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago")
 
+    logger.debug(f"/stations entries={len(entries)} limit={limit}")
     header = f"📋 Recently heard (top {min(limit, len(entries))}):"
-    msg = header + "
-" + "
-".join(lines)
+    msg = header + "\n" + "\n".join(lines)
     await update.effective_message.reply_text(msg)
 
 
@@ -1060,3 +1060,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
