@@ -121,6 +121,16 @@ async def js8_send_now(callsign: str, text: str):
     await BRIDGE.js8.send(payload)
 
 
+def was_recently_sent_msg(msg: str, ttl: int = _SENT_TTL_SEC) -> bool:
+    """Evita eco si el CUERPO coincide con algo que acabamos de transmitir,
+    aunque se haya perdido TO/FROM en el QSO window."""
+    now = time.time()
+    while _SENT_RECENT and now - _SENT_RECENT[0][2] > ttl:
+        _SENT_RECENT.popleft()
+    sig_msg = _clean_msg(msg)
+    return any(m == sig_msg for (_t, m, _ts) in _SENT_RECENT)
+
+
 def make_composed_text(to: str, text: str) -> str:
     """
     Formato que JS8Call entiende: destino + espacio + mensaje.
@@ -204,6 +214,10 @@ def extract_from_to_text(evt: dict) -> Optional[tuple[str, str, str]]:
     return None
 
 CALLSIGN_RE = re.compile(r"^[A-Z0-9/]{3,}(?:-\d{1,2})?$", re.I)
+
+def is_valid_callsign(s: str) -> bool:
+    return isinstance(s, str) and bool(CALLSIGN_RE.match((s or "").strip()))
+
 
 def _base_callsign(s: str) -> str:
     return (s or "").strip().split()[0].split("-")[0].upper()
@@ -368,17 +382,12 @@ def extract_from_to_text(evt: dict):
 
 
 def parse_rx_spot(evt: dict) -> Optional[dict]:
-    """
-    Extrae info de un RX.SPOT “estación oída”.
-    Intentamos campos típicos: CALLSIGN, SNR, GRID, FREQ, OFFSET.
-    """
     if not isinstance(evt, dict) or evt.get("type") != "RX.SPOT":
-              return None
+        return None
     v = evt.get("value") or {}
     cs = v.get("CALLSIGN") or v.get("STATION") or v.get("from") or v.get("CALL")
     if not isinstance(cs, str):
         return None
-    # Sanitiza SNR (puede llegar como str)
     snr = v.get("SNR")
     try:
         snr = int(snr)
@@ -387,8 +396,8 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
             snr = round(float(snr))
         except Exception:
             snr = None
-    config.GRID   = v.get("GRID")   or v.get("grid")
-    freq   = v.get("FREQ")   or v.get("freq")
+    grid = v.get("GRID") or v.get("grid")
+    freq = v.get("FREQ") or v.get("freq")
     offset = v.get("OFFSET") or v.get("offset")
     return {
         "callsign": _base_callsign(cs),
@@ -398,6 +407,7 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
         "offset": offset,
         "ts": time.time(),
     }
+
 
 
 
@@ -524,6 +534,8 @@ class _UDPProtocol(asyncio.DatagramProtocol):
           asyncio.create_task(self.on_event(evt))
 
 async def on_raw_triplet(frm: str, to: str, txt: str):
+    if was_recently_sent_msg(txt):
+        return
     # Evita eco propio
     if config.IGNORE_MESSAGES_FROM_SELF and is_me(frm):
         return
@@ -568,10 +580,10 @@ class JS8TelegramBridge:
         QSO_FROMTO_RE = re.compile(
             r'^\s*'
             r'(?:\[\d{2}:\d{2}:\d{2}\]\s*|\d{2}:\d{2}:\d{2}\s*)?'   # [11:22:12] o 11:22:12
-            r'(?:[-–—]\s*\(\d+\)\s*[-–—]\s*)?'                     # - (1546) - (opcional)
-            r'([@A-Za-z0-9/+-]+)\s*[:>]\s*'                        # FROM
-            r'(@?[A-Za-z0-9/+-]{3,})\b\s*'                         # TO
-            r'(.*)$'                                               # MENSAJE (puede ser vacío)
+            r'(?:[-–—]\s*\(\d+\)\s*[-–—]\s*)?'                      # - (1546) - (opcional)
+            r'([A-Za-z0-9/+-]+)\s*[:>]\s*'                          # FROM (no @, debe parecer indicativo)
+            r'(@?[A-Za-z0-9/+-]{3,})\b\s*'                          # TO
+            r'(.*)$'                                                # MENSAJE (puede ser vacío)
         )
 
         # ====== 1) QSO window (RX.TEXT) ======
@@ -624,6 +636,10 @@ class JS8TelegramBridge:
                 to_tok  = (to_tok  or "").strip()
                 msg     = (msg     or "").strip()
 
+                # FROM debe ser un indicativo válido (evita líneas truncadas que empiezan por @GRUPO, etc.)
+                if not is_valid_callsign(from_cs):
+                    return False
+
                 # 0) Deduplicación por ID del QSO (si existe)
                 qso_id = extract_qso_msg_id(line)
                 if qso_id and was_id_forwarded(qso_id):
@@ -643,7 +659,7 @@ class JS8TelegramBridge:
 
                 # 3) Anti-eco: si coincide con lo que ACABO de transmitir (mismo TO + mismo cuerpo), ignora
                 try:
-                    if was_recently_sent(to_tok, msg):
+                    if was_recently_sent(to_tok, msg) or was_recently_sent_msg(msg):
                         return False
                 except NameError:
                     pass
@@ -741,11 +757,8 @@ async def restricted_chat(update: Update) -> bool:
         return False
     return True
 
-async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = 'HEARTBEAT ' + config.GRID
-    js8_send_now('@HB',text)
-    logger.info(f"TX → JS8: @HB {text}")
 
+async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
     if len(context.args) > 0:
@@ -753,11 +766,13 @@ async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         callsign = "@HB"
+        text = 'HEARTBEAT ' + config.GRID
         await BRIDGE.tx_message(callsign, text)
         logger.info(f"TX → JS8: @HB {text}")
         await update.effective_message.reply_text(f"🔴 Heartbeat Enviado:\n @HB {text}")
     except Exception as e:
         await update.effective_message.reply_text(f"Error enviando a HEARTBEAT: {e}")
+
 
 
 async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
