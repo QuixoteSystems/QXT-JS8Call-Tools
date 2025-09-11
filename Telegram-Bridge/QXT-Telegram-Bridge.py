@@ -927,9 +927,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         " "
         "/help – Muestra este mensaje",
         "/status – Estado del Bridge",
-        "/to CALLSIGN mensaje – Envía mensaje a indicativo (ej: /to EA4ABC Hola)",
-        "/group @GRUPO mensaje – Envía a grupo (ej: /group @QXTNET Buenos días)",
-        "/last mensaje – Responde al último corresponsal recibido",
+        "/to CALLSIGN mensaje – Envía mensaje a indicativo",
+        "/group @GRUPO mensaje – Envía a grupo",
+        "/last mensaje – Responde al último corresponsal",
         "/stations [N] – Lista últimas estaciones oídas",
         "/heartbeat o /hb – Envía Heartbeat a @HB",
     ]
