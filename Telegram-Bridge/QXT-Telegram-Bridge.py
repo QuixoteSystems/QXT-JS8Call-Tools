@@ -29,7 +29,6 @@ Comandos en Telegram:
   /last mensaje                 -> Responde al último corresponsal recibido
   /status                       -> Estado del puente
   /heartbeat                    -> Send Heartbeat to the General Net
-  /hb                           -> Send Heartbeat to the General Net
   /stations                     -> Reply last stations heared
 """
 import time
@@ -779,11 +778,19 @@ class JS8TelegramBridge:
         if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
             try:
                 update_heard_from_call_activity(evt.get("value"))
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"CALL_ACTIVITY parse error: {ex}")
             return
 
-        # ====== 3) RX.SPOT → heard list (/estaciones) ======
+        # ====== 3) RX.BAND_ACTIVITY → heard list (fallback) ======
+        if isinstance(evt, dict) and evt.get("type") == "RX.BAND_ACTIVITY":
+            try:
+                update_heard_from_call_activity(evt.get("value"))
+            except Exception as ex:
+                logger.debug(f"BAND_ACTIVITY parse error: {ex}")
+            return
+
+        # ====== 4) RX.SPOT → heard list (/estaciones) ======
         if isinstance(evt, dict) and evt.get("type") == "RX.SPOT":
             try:
                 spot = parse_rx_spot(evt)
@@ -867,13 +874,15 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         limit = 20
 
-    # Fuerza un refresco de la Call Activity del panel derecho
+    # Fuerza un refresco de la Call Activity del panel derecho y, como fallback, la Band Activity
     try:
         if BRIDGE.js8 and STATE.js8_connected:
             await BRIDGE.js8.send({"type": "RX.GET_CALL_ACTIVITY", "value": ""})
-            await asyncio.sleep(0.8)
+            await asyncio.sleep(1.5)
+            await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "value": ""})
+            await asyncio.sleep(0.7)
     except Exception as e:
-        logger.debug(f"No se pudo pedir CALL_ACTIVITY: {e}")
+        logger.debug(f"No se pudo pedir CALL/BAND_ACTIVITY: {e}")
 
     if not STATE.heard:
         await update.effective_message.reply_text("Aún no he oído ninguna estación.")
@@ -903,6 +912,7 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     header = f"📋 Recently heard (top {min(limit, len(entries))}):"
     msg = header + "\n" + "\n".join(lines)
     await update.effective_message.reply_text(msg)
+
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
