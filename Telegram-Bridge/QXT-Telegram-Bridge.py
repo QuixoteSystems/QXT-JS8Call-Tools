@@ -382,12 +382,19 @@ def extract_from_to_text(evt: dict):
 
 
 def parse_rx_spot(evt: dict) -> Optional[dict]:
+    """
+    Extrae info de un evento RX.SPOT (panel derecho "heard") y la normaliza.
+    Devuelve un dict: {callsign, snr, grid, freq, offset, ts}
+    """
     if not isinstance(evt, dict) or evt.get("type") != "RX.SPOT":
         return None
     v = evt.get("value") or {}
+
     cs = v.get("CALLSIGN") or v.get("STATION") or v.get("from") or v.get("CALL")
     if not isinstance(cs, str):
         return None
+
+    # Sanitiza SNR (puede llegar como str)
     snr = v.get("SNR")
     try:
         snr = int(snr)
@@ -396,9 +403,11 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
             snr = round(float(snr))
         except Exception:
             snr = None
+
     grid = v.get("GRID") or v.get("grid")
     freq = v.get("FREQ") or v.get("freq")
     offset = v.get("OFFSET") or v.get("offset")
+
     return {
         "callsign": _base_callsign(cs),
         "snr": snr,
@@ -407,6 +416,7 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
         "offset": offset,
         "ts": time.time(),
     }
+
 
 
 
@@ -689,7 +699,9 @@ class JS8TelegramBridge:
                 if QSO_FROMTO_RE.match(trailing) and trailing != self._qso_last_forwarded:
                     await _parse_and_maybe_forward(trailing, "trailing-immediate")
                 if trailing == self._qso_pending_text:
-                    if now - self._qso_pending_since >= max(0.8 * poll, 1.0):
+                  # waiting less time to consider a finished line:
+                  # if now - self._qso_pending_since >= max(0.8 * poll, 1.0):
+                    if now - self._qso_pending_since >= max(1.0 * poll, 1.2):
                         if trailing != self._qso_last_forwarded:
                             await _parse_and_maybe_forward(trailing, "trailing-stable")
                         self._qso_pending_text = ""
