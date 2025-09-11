@@ -1,3 +1,18 @@
+"""
+Pega aquí tu script completo (las ~943 líneas) para revisión.
+
+En cuanto lo pegues, haré:
+- Correcciones de errores y mejoras de legibilidad (PEP 8).
+- Optimización de rendimiento donde tenga sentido.
+- Añadiré anotaciones de tipo y docstrings.
+- Sugeriré una estructura modular si aplica.
+- Propondré tests mínimos.
+
+Puedes pegarlo reemplazando este bloque.
+"""
+
+# --- Pegue su código debajo de esta línea ---
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -121,16 +136,6 @@ async def js8_send_now(callsign: str, text: str):
     await BRIDGE.js8.send(payload)
 
 
-def was_recently_sent_msg(msg: str, ttl: int = _SENT_TTL_SEC) -> bool:
-    """Evita eco si el CUERPO coincide con algo que acabamos de transmitir,
-    aunque se haya perdido TO/FROM en el QSO window."""
-    now = time.time()
-    while _SENT_RECENT and now - _SENT_RECENT[0][2] > ttl:
-        _SENT_RECENT.popleft()
-    sig_msg = _clean_msg(msg)
-    return any(m == sig_msg for (_t, m, _ts) in _SENT_RECENT)
-
-
 def make_composed_text(to: str, text: str) -> str:
     """
     Formato que JS8Call entiende: destino + espacio + mensaje.
@@ -214,10 +219,6 @@ def extract_from_to_text(evt: dict) -> Optional[tuple[str, str, str]]:
     return None
 
 CALLSIGN_RE = re.compile(r"^[A-Z0-9/]{3,}(?:-\d{1,2})?$", re.I)
-
-def is_valid_callsign(s: str) -> bool:
-    return isinstance(s, str) and bool(CALLSIGN_RE.match((s or "").strip()))
-
 
 def _base_callsign(s: str) -> str:
     return (s or "").strip().split()[0].split("-")[0].upper()
@@ -420,6 +421,72 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
 
 
 
+# ---- Helpers: Call Activity → heard -----------------
+
+def _extract_callsign_from_line(line: str) -> Optional[str]:
+    if not isinstance(line, str):
+        return None
+    tokens = re.findall("[A-Za-z0-9/+-]+", line.upper())
+    for tok in tokens:
+        if CALLSIGN_RE.match(tok):
+            return _base_callsign(tok)
+    return None
+
+
+def update_heard_from_call_activity(value) -> None:
+    """Normaliza el contenido de RX.CALL_ACTIVITY (texto o lista) y llena STATE.heard."""
+    now = time.time()
+
+    # dict contenedor
+    if isinstance(value, dict):
+        if isinstance(value.get("list"), list):
+            for it in value["list"]:
+                update_heard_from_call_activity(it)
+            return
+        if isinstance(value.get("text"), str):
+            update_heard_from_call_activity(value["text"])  # recursivo
+            return
+
+    # lista de objetos o líneas
+    if isinstance(value, list):
+        for it in value:
+            update_heard_from_call_activity(it)
+        return
+
+    # registro dict por estación
+    if isinstance(value, dict):
+        v = value
+        cs = v.get("CALLSIGN") or v.get("CALL") or v.get("from")
+        if isinstance(cs, str):
+            csb = _base_callsign(cs)
+            snr = v.get("SNR") if isinstance(v.get("SNR"), (int, float)) else None
+            grid = v.get("GRID") if isinstance(v.get("GRID"), str) else None
+            STATE.heard[csb] = {
+                "callsign": csb,
+                "snr": int(round(snr)) if isinstance(snr, (int, float)) else None,
+                "grid": grid,
+                "freq": v.get("FREQ"),
+                "offset": v.get("OFFSET"),
+                "ts": now,
+            }
+        return
+
+    # texto multilinea del panel derecho
+    if isinstance(value, str):
+        lines = [l.strip() for l in value.splitlines() if l.strip()]
+        for l in lines:
+            csb = _extract_callsign_from_line(l)
+            if not csb:
+                continue
+            STATE.heard[csb] = {
+                "callsign": csb,
+                "snr": None,
+                "grid": None,
+                "freq": None,
+                "offset": None,
+                "ts": now,
+            }
+        return
 
 # --------------- Estados compartidos ----------------
 
@@ -544,8 +611,6 @@ class _UDPProtocol(asyncio.DatagramProtocol):
           asyncio.create_task(self.on_event(evt))
 
 async def on_raw_triplet(frm: str, to: str, txt: str):
-    if was_recently_sent_msg(txt):
-        return
     # Evita eco propio
     if config.IGNORE_MESSAGES_FROM_SELF and is_me(frm):
         return
@@ -590,10 +655,10 @@ class JS8TelegramBridge:
         QSO_FROMTO_RE = re.compile(
             r'^\s*'
             r'(?:\[\d{2}:\d{2}:\d{2}\]\s*|\d{2}:\d{2}:\d{2}\s*)?'   # [11:22:12] o 11:22:12
-            r'(?:[-–—]\s*\(\d+\)\s*[-–—]\s*)?'                      # - (1546) - (opcional)
-            r'([A-Za-z0-9/+-]+)\s*[:>]\s*'                          # FROM (no @, debe parecer indicativo)
-            r'(@?[A-Za-z0-9/+-]{3,})\b\s*'                          # TO
-            r'(.*)$'                                                # MENSAJE (puede ser vacío)
+            r'(?:[-–—]\s*\(\d+\)\s*[-–—]\s*)?'                     # - (1546) - (opcional)
+            r'([@A-Za-z0-9/+-]+)\s*[:>]\s*'                        # FROM
+            r'(@?[A-Za-z0-9/+-]{3,})\b\s*'                         # TO
+            r'(.*)$'                                               # MENSAJE (puede ser vacío)
         )
 
         # ====== 1) QSO window (RX.TEXT) ======
@@ -646,10 +711,6 @@ class JS8TelegramBridge:
                 to_tok  = (to_tok  or "").strip()
                 msg     = (msg     or "").strip()
 
-                # FROM debe ser un indicativo válido (evita líneas truncadas que empiezan por @GRUPO, etc.)
-                if not is_valid_callsign(from_cs):
-                    return False
-
                 # 0) Deduplicación por ID del QSO (si existe)
                 qso_id = extract_qso_msg_id(line)
                 if qso_id and was_id_forwarded(qso_id):
@@ -669,7 +730,7 @@ class JS8TelegramBridge:
 
                 # 3) Anti-eco: si coincide con lo que ACABO de transmitir (mismo TO + mismo cuerpo), ignora
                 try:
-                    if was_recently_sent(to_tok, msg) or was_recently_sent_msg(msg):
+                    if was_recently_sent(to_tok, msg):
                         return False
                 except NameError:
                     pass
@@ -699,9 +760,7 @@ class JS8TelegramBridge:
                 if QSO_FROMTO_RE.match(trailing) and trailing != self._qso_last_forwarded:
                     await _parse_and_maybe_forward(trailing, "trailing-immediate")
                 if trailing == self._qso_pending_text:
-                  # waiting less time to consider a finished line:
-                  # if now - self._qso_pending_since >= max(0.8 * poll, 1.0):
-                    if now - self._qso_pending_since >= max(1.0 * poll, 1.2):
+                    if now - self._qso_pending_since >= max(0.8 * poll, 1.0):
                         if trailing != self._qso_last_forwarded:
                             await _parse_and_maybe_forward(trailing, "trailing-stable")
                         self._qso_pending_text = ""
@@ -715,7 +774,15 @@ class JS8TelegramBridge:
 
             return  # no procesar RX.TEXT en otras ramas!
 
-        # ====== 2) RX.SPOT → heard list (/estaciones) ======
+        # ====== 2) RX.CALL_ACTIVITY → heard list ======
+        if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
+            try:
+                update_heard_from_call_activity(evt.get("value"))
+            except Exception:
+                pass
+            return
+
+        # ====== 3) RX.SPOT → heard list (/estaciones) ======
         if isinstance(evt, dict) and evt.get("type") == "RX.SPOT":
             try:
                 spot = parse_rx_spot(evt)
@@ -769,8 +836,11 @@ async def restricted_chat(update: Update) -> bool:
         return False
     return True
 
-
 async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = 'HEARTBEAT ' + config.GRID
+    js8_send_now('@HB',text)
+    logger.info(f"TX → JS8: @HB {text}")
+
     if not await restricted_chat(update):
         return
     if len(context.args) > 0:
@@ -778,13 +848,11 @@ async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         callsign = "@HB"
-        text = 'HEARTBEAT ' + config.GRID
         await BRIDGE.tx_message(callsign, text)
         logger.info(f"TX → JS8: @HB {text}")
         await update.effective_message.reply_text(f"🔴 Heartbeat Enviado:\n @HB {text}")
     except Exception as e:
         await update.effective_message.reply_text(f"Error enviando a HEARTBEAT: {e}")
-
 
 
 async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -797,6 +865,14 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         limit = max(1, min(limit, 100))
     except Exception:
         limit = 20
+
+    # Fuerza un refresco de la Call Activity del panel derecho
+    try:
+        if BRIDGE.js8 and STATE.js8_connected:
+            await BRIDGE.js8.send({"type": "RX.GET_CALL_ACTIVITY", "value": ""})
+            await asyncio.sleep(0.8)
+    except Exception as e:
+        logger.debug(f"No se pudo pedir CALL_ACTIVITY: {e}")
 
     if not STATE.heard:
         await update.effective_message.reply_text("Aún no he oído ninguna estación.")
@@ -824,7 +900,9 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago")
 
     header = f"📋 Recently heard (top {min(limit, len(entries))}):"
-    msg = header + "\n" + "\n".join(lines)
+    msg = header + "
+" + "
+".join(lines)
     await update.effective_message.reply_text(msg)
 
 
