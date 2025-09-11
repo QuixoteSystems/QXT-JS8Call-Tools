@@ -901,9 +901,8 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago")
 
     header = f"📋 Recently heard (top {min(limit, len(entries))}):"
-    msg = header + " + ".join(lines)
+    msg = header + "\n" + "\n".join(lines)
     await update.effective_message.reply_text(msg)
-
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
