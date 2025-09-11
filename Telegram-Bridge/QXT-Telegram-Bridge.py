@@ -919,6 +919,21 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(msg)
 
 
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await restricted_chat(update):
+        return
+    lines = [
+        "🤖 QXT Bridge – Comandos:",
+        "/help – Muestra este mensaje",
+        "/status – Estado del puente",
+        "/to CALLSIGN mensaje – Envía el mensaje a un indicativo (p. ej. /to EA4ABC Hola)",
+        "/group @GRUPO mensaje – Envía al grupo (p. ej. /group @QXTNET Buenos días)",
+        "/last mensaje – Responde al último corresponsal recibido",
+        "/stations [N] – Lista últimas estaciones oídas (panel derecho)",
+        "/heartbeat o /hb – Envía Heartbeat a @HB",
+    ]
+    await update.effective_message.reply_text("\n".join(lines))
+
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
@@ -1041,12 +1056,13 @@ async def on_startup(app: Application):
 
 def build_application() -> Application:
     application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(on_startup).build()
-
+  
+    application.add_handler(CommandHandler("help", cmd_help))
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CommandHandler("to", cmd_to))
     application.add_handler(CommandHandler("group", cmd_group))
     application.add_handler(CommandHandler("last", cmd_last))
-    application.add_handler(CommandHandler("stations", cmd_estaciones))
+    application.add_handler(CommandHandler(["stations","estaciones"], cmd_estaciones))
     application.add_handler(CommandHandler(["heartbeat","hb"], cmd_heartbeat))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, plain_text_handler))
 
