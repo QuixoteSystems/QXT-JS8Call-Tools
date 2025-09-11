@@ -4,10 +4,11 @@ It connects to JS8Call’s TCP JSON API and a Telegram bot, forwards any receive
 
 Telegram Commands:
 ```telegram
-  /to CALLSIGN mensaje          -> Envía "mensaje" a CALLSIGN
-  /group @GRUPO mensaje         -> Envía "mensaje" al grupo (@GRUPO)
-  /last mensaje                 -> Responde al último corresponsal recibido
-  /status                       -> Estado del puente
+  /help                         -> Show this menu
+  /to CALLSIGN mensaje          -> Send "message" to CALLSIGN
+  /group @GRUPO mensaje         -> Send "message" to Group (@GRUPO)
+  /last mensaje                 -> Reply to the last station
+  /status                       -> Bridge Status
   /heartbeat                    -> Send Heartbeat to the General Net
   /hb                           -> Send Heartbeat to the General Net
   /stations                     -> Reply last stations heared
@@ -23,6 +24,7 @@ To adapt to your enviroment and your own machine, edit config.py file and change
 ```shell
 
 python3 QXT-Telegram-Bridge.py
+
 ```
 
 
