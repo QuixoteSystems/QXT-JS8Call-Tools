@@ -44,7 +44,8 @@ NOISY_LIBS = ("httpx", "httpcore")
 if logging.getLogger().getEffectiveLevel() > logging.DEBUG:
     # Root está en INFO (o más alto) → oculta INFO de httpx
     for name in NOISY_LIBS:
-        logging.getLogger(name).setLevel(logging.WARNING)                                                                                                   else:
+        logging.getLogger(name).setLevel(logging.WARNING)                                                                                                   
+else:
     # Root en DEBUG → muestra DEBUG de httpx cuando quieras inspeccionar
     for name in NOISY_LIBS:
         logging.getLogger(name).setLevel(logging.DEBUG)
