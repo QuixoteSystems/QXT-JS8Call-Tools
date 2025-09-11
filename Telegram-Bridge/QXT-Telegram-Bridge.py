@@ -1,18 +1,3 @@
-"""
-Pega aquí tu script completo (las ~943 líneas) para revisión.
-
-En cuanto lo pegues, haré:
-- Correcciones de errores y mejoras de legibilidad (PEP 8).
-- Optimización de rendimiento donde tenga sentido.
-- Añadiré anotaciones de tipo y docstrings.
-- Sugeriré una estructura modular si aplica.
-- Propondré tests mínimos.
-
-Puedes pegarlo reemplazando este bloque.
-"""
-
-# --- Pegue su código debajo de esta línea ---
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
