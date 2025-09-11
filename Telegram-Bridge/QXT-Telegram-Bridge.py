@@ -21,32 +21,14 @@ import asyncio
 import json
 import logging
 import re
+import config
+
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
 from collections import deque
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-
-# ===================== CONFIG =====================
-
-TELEGRAM_BOT_TOKEN = "YOUR_TOKEN" # Puedes obtenerlo el token de tu bot (desde @BotFather).
-TELEGRAM_CHAT_ID   = 12345678  # Reemplaza por tu chat ID (int) el chat ID donde quieres recibir/enviar (p.ej., tu chat privado; puedes obtenerlo hablando >
-MY_CALLSIGN        = "EA4ABC"               # Tu indicativo JS8
-MONITORED_GROUPS   = ["@QXTNET"]            # Ejemplo de grupos JS8 que quieres escuchar
-
-JS8_HOST           = "127.0.0.1"
-JS8_PORT           = 2442                   # JS8Call API JSON (normalmente 2442)
-TRANSPORT          = "TCP"                  # "TCP" (recomendado) o "UDP"
-
-
-IGNORE_MESSAGES_FROM_SELF = True  # Por seguridad: evita bucles reenviando lo que tú mismo transmites
-# — Reenvío desde el QSO window (pantalla central) —
-FORWARD_QSO_WINDOW = True         # activa el sondeo del QSO window
-QSO_POLL_SECONDS   = 2.0          # intervalo de sondeo
-FORWARD_ONLY_TARGETED = True      # True: solo líneas donde aparezcan TUS alias o TUS grupos
-IGNORE_SELF_QSO_LINES = True      # no reenvíes lo que yo mismo transmito desde el QSO window
-QSO_ID_CACHE_SIZE = 2000          # cuántos IDs recordamos para no duplicar
 
 
 # =================================================
@@ -86,7 +68,7 @@ def remember_forwarded_id(qso_id: str):
     if not qso_id:
         return
     # purga si nos pasamos del límite
-    if len(STATE.qso_forwarded_ids) >= QSO_ID_CACHE_SIZE:
+    if len(STATE.qso_forwarded_ids) >= config.QSO_ID_CACHE_SIZE:
         old = STATE.qso_forwarded_ids.popleft()
         STATE.qso_forwarded_id_set.discard(old)
     STATE.qso_forwarded_ids.append(qso_id)
@@ -204,7 +186,7 @@ def extract_from_to_text(evt: dict) -> Optional[tuple[str, str, str]]:
         # Normalizamos para comparar
         me_base = _base_callsign(MY_CALLSIGN)
         if inferred_to.startswith("@"):
-            if any(_norm_group(inferred_to) == _norm_group(g) for g in MONITORED_GROUPS):
+            if any(_norm_group(inferred_to) == _norm_group(g) for g in config.MONITORED_GROUPS):
                 chosen_to = inferred_to
                 txt = stripped
         else:
@@ -234,7 +216,7 @@ def _norm_group(s: str) -> str:
 
 def is_me(callsign: str) -> bool:
     base = _base_callsign(callsign)
-    return any(_base_callsign(x) == base for x in MY_CALLSIGN if isinstance(x, str))
+    return any(_base_callsign(x) == base for x in config.MY_CALLSIGN if isinstance(x, str))
 
 def to_is_me_or_monitored_group(to: str) -> bool:
     if not isinstance(to, str):
@@ -243,7 +225,7 @@ def to_is_me_or_monitored_group(to: str) -> bool:
     if is_me(to):
         return True
     g = _norm_group(to)
-    if g and any(g == _norm_group(x) for x in MONITORED_GROUPS):
+    if g and any(g == _norm_group(x) for x in config.MONITORED_GROUPS):
         return True
     return False
 
@@ -404,7 +386,7 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
             snr = round(float(snr))
         except Exception:
             snr = None
-    grid   = v.get("GRID")   or v.get("grid")
+    config.GRID   = v.get("GRID")   or v.get("grid")
     freq   = v.get("FREQ")   or v.get("freq")
     offset = v.get("OFFSET") or v.get("offset")
     return {
@@ -542,12 +524,12 @@ class _UDPProtocol(asyncio.DatagramProtocol):
 
 async def on_raw_triplet(frm: str, to: str, txt: str):
     # Evita eco propio
-    if IGNORE_MESSAGES_FROM_SELF and is_me(frm):
+    if config.IGNORE_MESSAGES_FROM_SELF and is_me(frm):
         return
     # Solo si el destino soy yo o un grupo vigilado
     if not to_is_me_or_monitored_group(to):
         return
-    STATE.last_from_per_chat[TELEGRAM_CHAT_ID] = frm
+    STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = frm
     await send_to_telegram(f"📡 JS8 ⟶ Telegram\nDe: {frm}\nPara: {to}\n\n{txt}")
 
 async def poll_qso_text_loop():
@@ -556,12 +538,12 @@ async def poll_qso_text_loop():
     """
     while True:
         try:
-            if FORWARD_QSO_WINDOW and STATE.js8_connected and BRIDGE.js8:
+            if config.FORWARD_QSO_WINDOW and STATE.js8_connected and BRIDGE.js8:
                 # Pide el texto del QSO window
                 await BRIDGE.js8.send({"type": "RX.GET_TEXT", "value": ""})
         except Exception as e:
             logger.error(f"QSO poll error: {e}")
-        await asyncio.sleep(QSO_POLL_SECONDS)
+        await asyncio.sleep(config.QSO_POLL_SECONDS)
 
 
 # ------------- Bridge principal (glue code) -------------
@@ -571,11 +553,11 @@ class JS8TelegramBridge:
         self.js8 = None  # JS8ClientTCP | JS8ClientUDP
 
     async def start_js8(self):
-        if TRANSPORT.upper() == "TCP":
-            self.js8 = JS8ClientTCP(JS8_HOST, JS8_PORT, self.on_js8_event)
+        if config.TRANSPORT.upper() == "TCP":
+            self.js8 = JS8ClientTCP(config.JS8_HOST, config.JS8_PORT, self.on_js8_event)
             await self.js8.connect()
         else:
-            self.js8 = JS8ClientUDP(JS8_HOST, JS8_PORT, self.on_js8_event)
+            self.js8 = JS8ClientUDP(config.JS8_HOST, config.JS8_PORT, self.on_js8_event)
             await self.js8.connect()
 
 
@@ -623,12 +605,12 @@ class JS8TelegramBridge:
             STATE.qso_last_text = stable_text
 
             # Conjuntos para decidir destino permitido y detectar “yo” (estricto)
-            allowed_calls  = { _base_callsign(a) for a in MY_ALIASES if isinstance(a, str) and a.strip() }
-            allowed_groups = { _norm_group(g)    for g in MONITORED_GROUPS if _norm_group(g) }
+            allowed_calls  = { _base_callsign(a) for a in config.MY_ALIASES if isinstance(a, str) and a.strip() }
+            allowed_groups = { _norm_group(g)    for g in config.MONITORED_GROUPS if _norm_group(g) }
 
             def _is_me_strict(tok: str) -> bool:
                 base = _base_callsign(tok)
-                return any(_base_callsign(a) == base for a in MY_ALIASES if isinstance(a, str) and a.strip())
+                return any(_base_callsign(a) == base for a in config.MY_ALIASES if isinstance(a, str) and a.strip())
 
             async def _parse_and_maybe_forward(line: str, source: str) -> bool:
                 """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
@@ -686,7 +668,7 @@ class JS8TelegramBridge:
             # 1.b) Linea final sin '\n': si ya esta completa (FROM→TO), enviala UNA VEZ cuando se estabilice
             if trailing:
                 now = time.time()
-                poll = globals().get("QSO_POLL_SECONDS", 2.0)
+                poll = globals().get("config.QSO_POLL_SECONDS", 2.0)
                 if QSO_FROMTO_RE.match(trailing) and trailing != self._qso_last_forwarded:
                     await _parse_and_maybe_forward(trailing, "trailing-immediate")
                 if trailing == self._qso_pending_text:
@@ -724,7 +706,7 @@ class JS8TelegramBridge:
 
         frm, to, txt = triplet
         basef = _base_callsign(frm)
-        if any(_base_callsign(a) == basef for a in MY_ALIASES):
+        if any(_base_callsign(a) == basef for a in config.MY_ALIASES):
             return
         if not to_is_me_or_monitored_group(to):
             return
@@ -753,13 +735,13 @@ BRIDGE = JS8TelegramBridge()
 async def restricted_chat(update: Update) -> bool:
     # Solo aceptamos mensajes del chat configurado
     chat_id = update.effective_chat.id if update.effective_chat else None
-    if chat_id != TELEGRAM_CHAT_ID:
+    if chat_id != config.TELEGRAM_CHAT_ID:
         # Silencioso: ignora otros chats
         return False
     return True
 
 async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = 'HEARTBEAT ' + GRID
+    text = 'HEARTBEAT ' + config.GRID
     js8_send_now('@HB',text)
     logger.info(f"TX → JS8: @HB {text}")
 
@@ -823,14 +805,14 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
     js8_ok = "✅" if STATE.js8_connected else "❌"
-    last = STATE.last_from_per_chat.get(TELEGRAM_CHAT_ID, "—")
+    last = STATE.last_from_per_chat.get(config.TELEGRAM_CHAT_ID, "—")
     err = STATE.js8_last_error or "—"
     msg = (
         f"🔎 Estado del QXT Bridge\n"
         f"JS8: {js8_ok}\n"
         f"Último corresponsal: {last}\n"
         f"Último error JS8: {err}\n"
-        f"Grupos vigilados: {', '.join(MONITORED_GROUPS) if MONITORED_GROUPS else '—'}"
+        f"Grupos vigilados: {', '.join(config.MONITORED_GROUPS) if config.MONITORED_GROUPS else '—'}"
     )
     await update.effective_message.reply_text(msg)
 
@@ -874,7 +856,7 @@ async def cmd_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.effective_message.reply_text("Uso: /last mensaje   (responde al último corresponsal recibido)")
         return
-    last = STATE.last_from_per_chat.get(TELEGRAM_CHAT_ID)
+    last = STATE.last_from_per_chat.get(config.TELEGRAM_CHAT_ID)
     if not last:
         await update.effective_message.reply_text("No hay corresponsal previo en memoria.")
         return
@@ -894,7 +876,7 @@ async def plain_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = (update.effective_message.text or "").strip()
     if not text:
         return
-    last = STATE.last_from_per_chat.get(TELEGRAM_CHAT_ID)
+    last = STATE.last_from_per_chat.get(config.TELEGRAM_CHAT_ID)
     if not last:
         await update.effective_message.reply_text("No hay corresponsal previo. Usa /to o /group.")
         return
@@ -910,7 +892,7 @@ async def plain_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def send_to_telegram(text: str):
     # Usamos el contexto global del Application
     try:
-        await APP.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text)
+        await APP.bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=text)
     except Exception as e:
         logger.error(f"No se pudo enviar a Telegram: {e}")
 
@@ -938,7 +920,7 @@ async def on_startup(app: Application):
     logger.info("Puente iniciado. Esperando eventos...")
 
 def build_application() -> Application:
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(on_startup).build()
+    application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(on_startup).build()
 
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CommandHandler("to", cmd_to))
