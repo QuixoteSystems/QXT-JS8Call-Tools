@@ -29,6 +29,7 @@ Comandos en Telegram:
   /last mensaje                 -> Responde al último corresponsal recibido
   /status                       -> Estado del puente
   /heartbeat                    -> Send Heartbeat to the General Net
+  /hb                           -> Send Heartbeat to the General Net
   /stations                     -> Reply last stations heared
 """
 import time
