@@ -924,12 +924,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     lines = [
         "🤖 QXT Bridge – Comandos:",
+        " "
         "/help – Muestra este mensaje",
-        "/status – Estado del puente",
-        "/to CALLSIGN mensaje – Envía el mensaje a un indicativo (p. ej. /to EA4ABC Hola)",
-        "/group @GRUPO mensaje – Envía al grupo (p. ej. /group @QXTNET Buenos días)",
+        "/status – Estado del Bridge",
+        "/to CALLSIGN mensaje – Envía mensaje a indicativo (ej: /to EA4ABC Hola)",
+        "/group @GRUPO mensaje – Envía a grupo (ej: /group @QXTNET Buenos días)",
         "/last mensaje – Responde al último corresponsal recibido",
-        "/stations [N] – Lista últimas estaciones oídas (panel derecho)",
+        "/stations [N] – Lista últimas estaciones oídas",
         "/heartbeat o /hb – Envía Heartbeat a @HB",
     ]
     await update.effective_message.reply_text("\n".join(lines))
