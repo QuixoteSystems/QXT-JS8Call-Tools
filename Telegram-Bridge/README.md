@@ -16,7 +16,7 @@ Telegram Commands:
 It composes the proper JS8 line and triggers transmit, normalizes callsigns/groups, ignores your own transmissions to prevent loops, auto-reconnects to JS8Call, and includes logging for troubleshooting.
 
 ### Configuration
-To run in your own machine, open config.py file and change and adapt with your data.
+To adapt to your enviroment and your own machine, edit config.py file and change it with your own data (Callsign, IP, Port...).
 
 ### Running
 
