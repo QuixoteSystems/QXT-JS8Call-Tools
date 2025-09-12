@@ -840,6 +840,10 @@ BRIDGE = JS8TelegramBridge()
 
 # --------------- Telegram Bot Handlers -----------------
 
+# Pon esto cerca del resto de handlers
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error("Unhandled exception in handler", exc_info=context.error)
+
 async def restricted_chat(update: Update) -> bool:
     # Solo aceptamos mensajes del chat configurado
     chat_id = update.effective_chat.id if update.effective_chat else None
@@ -1056,7 +1060,20 @@ async def on_startup(app: Application):
     logger.info("Puente iniciado. Esperando eventos...")
 
 def build_application() -> Application:
-    application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(on_startup).build()
+
+    req = HTTPXRequest(
+        connect_timeout=getattr(config, "TG_CONNECT_TIMEOUT", 20),
+        read_timeout=getattr(config, "TG_READ_TIMEOUT", 60),
+        write_timeout=getattr(config, "TG_WRITE_TIMEOUT", 60),
+    )
+    application = (
+        Application.builder()
+        .token(config.TELEGRAM_BOT_TOKEN)
+        .request(req)
+        .post_init(on_startup)
+        .build()
+    )
+    #application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(on_startup).build()
   
     application.add_handler(CommandHandler("help", cmd_help))
     application.add_handler(CommandHandler("status", cmd_status))
@@ -1066,6 +1083,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler(["stations","estaciones"], cmd_estaciones))
     application.add_handler(CommandHandler(["heartbeat","hb"], cmd_heartbeat))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, plain_text_handler))
+    application.add_error_handler(error_handler)
 
     return application
 
