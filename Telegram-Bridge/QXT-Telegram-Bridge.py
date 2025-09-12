@@ -919,7 +919,6 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
     js8_ok = "✅" if STATE.js8_connected else "❌"
