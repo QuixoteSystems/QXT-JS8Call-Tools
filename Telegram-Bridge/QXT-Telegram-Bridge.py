@@ -1135,42 +1135,67 @@ async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.debug("/stations invoked")
     if not await restricted_chat(update):
+        logger.debug("/stations: chat no autorizado")
         return
 
-    # Limite opcional: /estaciones 30
     try:
-        limit = int(context.args[0]) if context.args else 20
-        limit = max(1, min(limit, 100))
-    except Exception:
-        limit = 20
+        # ---- 1) Límite solicitado
+        try:
+            limit = int(context.args[0]) if context.args else 20
+            limit = max(1, min(limit, 200))
+        except Exception:
+            limit = 20
 
-    # Fuerza un refresco de la Call Activity del panel derecho y, como fallback, la Band Activity
-    try:
-        if BRIDGE and STATE.js8_connected:
-            timeout = getattr(config, "CALL_ACTIVITY_TIMEOUT", 2.5)
-            ok = await BRIDGE.get_heard_snapshot(timeout)
-            logger.debug(f"/stations snapshot ok={ok}, heard={len(STATE.heard)}")
-    except Exception as e:
-        logger.debug(f"No se pudo pedir CALL/BAND_ACTIVITY: {e}")
+        # ---- 2) (Opcional) pedir snapshot y ESPERAR a datos
+        try:
+            if BRIDGE and STATE.js8_connected:
+                timeout = getattr(config, "CALL_ACTIVITY_TIMEOUT", 2.5)
+                ok = await BRIDGE.get_heard_snapshot(timeout)
+                logger.debug(f"/stations snapshot ok={ok}, heard={len(STATE.heard)}")
+        except Exception as e:
+            logger.debug(f"/stations snapshot error: {e}")
 
-    if not STATE.heard:
-        await update.effective_message.reply_text(t("stations_none"))
-        return
+        # ---- 3) Construir la lista desde memoria
+        total = len(STATE.heard)
+        if total == 0:
+            await update.effective_message.reply_text("Aún no he oído ninguna estación.")
+            return
 
-    header = t("stations_header", n=min(limit, len(entries)))
-    lines_fmt = []
-    for e in entries[:limit]:
-        cs   = e.get("callsign", "")
-        snr  = e.get("snr")
-        grid = e.get("grid") or ""
-        age_s = max(0, int(now - (e.get("ts") or now)))
-        age = f"{age_s//60}m" if age_s < 3600 else f"{age_s//3600}h"
-        snr_txt = f"SNR {snr:+d}" if isinstance(snr, int) else ""
-        lines_fmt.append(t("stations_line", cs=cs, snr_txt=snr_txt, grid=grid, age=age))
-    
-    msg = header + "\n" + "\n".join(lines_fmt)
-    await update.effective_message.reply_text(msg)
+        now = time.time()
+        entries = sorted(
+            STATE.heard.values(),
+            key=lambda e: e.get("ts", 0) or 0,
+            reverse=True,
+        )
+
+        def _fmt_line(e: dict) -> str:
+            cs   = e.get("callsign") or ""
+            snr  = e.get("snr")
+            grid = e.get("grid") or ""
+            age_s = max(0, int(now - (e.get("ts") or now)))
+            age = f"{age_s//60}m" if age_s < 3600 else f"{age_s//3600}h"
+            snr_txt = f"SNR {snr:+d}" if isinstance(snr, int) else ""
+            return f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago"
+
+        lines = [_fmt_line(e) for e in entries[:limit]]
+        header = f"📋 Recently heard (top {min(limit, len(entries))} / total {total}):"
+        msg = header + "\n" + "\n".join(lines)
+
+        # ---- 4) Troceo por si el usuario pide muchos (límite Telegram ~4096 chars)
+        maxlen = 3500
+        for i in range(0, len(msg), maxlen):
+            await update.effective_message.reply_text(msg[i:i+maxlen])
+
+    except Exception as ex:
+        logger.error(f"/stations error: {ex}", exc_info=ex)
+        # Respuesta mínima para ver que entró al handler aunque falle el envío formateado
+        try:
+            await update.effective_message.reply_text("Error mostrando estaciones. Revisa el log.")
+        except Exception:
+            pass
+
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
