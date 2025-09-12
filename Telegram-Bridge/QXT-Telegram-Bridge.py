@@ -671,10 +671,21 @@ def update_heard_from_call_activity(value):
                     if isinstance(_v, list):
                         update_heard_from_call_activity(_v)
                         return
-                # 4.b) Mapa de offsets (claves numéricas en 'params'): {"930": {...}, ...}
+                                # 4.b) Mapa de offsets (claves numéricas en 'params'): {"930": {...}, "950": {...}, "_ID": ...}
                 keys = list(value.keys())
                 is_offset_map = keys and all(isinstance(k, str) and (k.isdigit() or k.startswith("_")) for k in keys)
                 if is_offset_map:
+                    GRID_RE = re.compile(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', re.I)
+        
+                    def _to_int(x):
+                        try:
+                            return int(x)
+                        except Exception:
+                            try:
+                                return int(round(float(x)))
+                            except Exception:
+                                return None
+        
                     for k, d in value.items():
                         if not isinstance(d, dict):
                             continue
@@ -682,49 +693,37 @@ def update_heard_from_call_activity(value):
         
                         # Indicativo en TEXT: "EA1ABC: ..." o "EA1ABC> ..."
                         m_cs = re.match(r'\s*([A-Z0-9/]{3,})\s*[:>]', text, re.I)
-                        if m_cs:
-                            cs = m_cs.group(1)
+                        if m_cs and CALLSIGN_RE.match(m_cs.group(1)):
+                            cs = m_cs.group(1).upper()
                         else:
-                            cs = next((tok for tok in text.split() if CALLSIGN_RE.match(tok)), None)
-        
-                        # SNR, GRID, FREQ, OFFSET, UTC
-                        def _to_int(x):
-                            try:
-                                return int(x)
-                            except Exception:
-                                try:
-                                    return int(round(float(x)))
-                                except Exception:
-                                    return None
+                            cs = next((tok.upper() for tok in text.split() if CALLSIGN_RE.match(tok)), None)
         
                         snr  = _to_int(d.get("SNR"))
-                        m_g  = re.search(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', text, re.I)
+                        m_g  = GRID_RE.search(text)
                         grid = m_g.group(1).upper() if m_g else None
                         freq = d.get("FREQ") or d.get("DIAL")
                         off  = d.get("OFFSET")
                         utc_ms = d.get("UTC")
                         utc_ts = None
                         if isinstance(utc_ms, (int, float)):
-                            # vienen en milisegundos
                             utc_ts = (utc_ms / 1000.0) if utc_ms > 1e12 else float(utc_ms)
         
-                        # Guarda en STATE.heard con timestamp de UTC real
                         if cs:
                             base = _base_callsign(cs)
                             now = time.time()
                             prev = STATE.heard.get(base, {})
-                            entry = {
+                            STATE.heard[base] = {
                                 "callsign": base,
                                 "snr": snr if isinstance(snr, int) else prev.get("snr"),
                                 "grid": grid if isinstance(grid, str) else prev.get("grid"),
                                 "freq": freq if freq is not None else prev.get("freq"),
                                 "offset": off if off is not None else prev.get("offset"),
                                 "utc": utc_ts if utc_ts else prev.get("utc"),
-                                "ts": utc_ts if utc_ts else now,  # ← usa hora real si existe
+                                "ts": utc_ts if utc_ts else now,   # usa tiempo real si viene
                                 "text": text or prev.get("text"),
                             }
-                            STATE.heard[base] = entry
                     return
+
 
         # b) mapa CALLSIGN -> dict(info)
         keys = list(value.keys())
@@ -961,19 +960,18 @@ class JS8TelegramBridge:
     async def get_heard_snapshot(self, timeout: float = 3.5) -> bool:
         if not self.js8 or not STATE.js8_connected:
             return False
-        # envía ambas peticiones (algunas builds necesitan 'params' y 'value')
+        # Algunas builds requieren 'params' y 'value' a la vez
         await self.js8.send({"type": "RX.GET_CALL_ACTIVITY", "params": {}, "value": ""})
         await asyncio.sleep(0)
         await self.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}, "value": ""})
     
-        # espera activa a que STATE.heard tenga algo
+        # Espera activa a que STATE.heard tenga algo
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if STATE.heard:
                 return True
             await asyncio.sleep(0.2)
         return bool(STATE.heard)
-
 
 
     async def on_js8_event(self, evt: dict):
@@ -1111,7 +1109,7 @@ class JS8TelegramBridge:
                 # 1) intenta con 'value'
                 update_heard_from_call_activity(val)
                 
-                # 2) y también con 'params' (donde viene tu mapa de offsets)
+                # 2) y también con 'params' (tu caso: mapa de offsets)
                 params = evt.get("params")
                 if isinstance(params, dict):
                     update_heard_from_call_activity(params)
@@ -1132,10 +1130,8 @@ class JS8TelegramBridge:
                 _dump_json("/tmp/js8_band_activity_evt_last.json", evt)
                 logger.debug(f"BAND_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val)}")
                 
-                # 1) 'value'
                 update_heard_from_call_activity(val)
                 
-                # 2) 'params' (tu caso)
                 params = evt.get("params")
                 if isinstance(params, dict):
                     update_heard_from_call_activity(params)
