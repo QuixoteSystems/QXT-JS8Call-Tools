@@ -572,27 +572,33 @@ def update_heard_from_call_activity(value):
 
     # list
     if isinstance(value, list):
-        for it in value:
-            if isinstance(it, dict):
-                cs = it.get("CALLSIGN") or it.get("STATION") or it.get("from") or it.get("CALL") or it.get("call")
-                snr = _to_int(it.get("SNR"))
-                grid = it.get("GRID") or it.get("grid") or it.get("LOC") or it.get("locator")
-                freq = it.get("FREQ") or it.get("freq") or it.get("DIAL") or it.get("dial")
-                off  = it.get("OFFSET") or it.get("offset")
+                # 4.b) Mapa de offsets (claves numéricas en 'params'): {"930": {...}, "950": {...}}
+        #     Cada item suele traer: DIAL/FREQ/OFFSET/SNR/TEXT/UTC
+        keys = list(value.keys())
+        is_offset_map = keys and all(isinstance(k, str) and (k.isdigit() or k.startswith("_")) for k in keys)
+        if is_offset_map:
+            for k, d in value.items():
+                if not isinstance(d, dict):
+                    continue
+                text = (d.get("TEXT") or "").strip()
+                # Indicativo: al inicio de TEXT antes de ':' o '>'
+                m_cs = re.match(r'\s*([A-Z0-9/]{3,})\s*[:>]', text, re.I)
+                if m_cs:
+                    cs = m_cs.group(1)
+                else:
+                    # Fallback: primer token con pinta de indicativo
+                    cs = None
+                    for tok in text.split():
+                        if CALLSIGN_RE.match(tok):
+                            cs = tok
+                            break
+                snr  = _to_int(d.get("SNR"))
+                m_g  = GRID_RE.search(text)
+                grid = m_g.group(1).upper() if m_g else None
+                freq = d.get("FREQ") or d.get("DIAL")
+                off  = d.get("OFFSET")
                 _push(cs, snr, grid, freq, off)
-            elif isinstance(it, str):
-                line = it.strip()
-                if not line:
-                    continue
-                cs = next((tok for tok in line.split() if CALLSIGN_RE.match(tok)), None)
-                if not cs:
-                    continue
-                m_snr = re.search(r'\bSNR\s*([+-]?\d{1,2})\b', line, re.I)
-                snr = _to_int(m_snr.group(1)) if m_snr else None
-                m_grid = GRID_RE.search(line)
-                grid = m_grid.group(1).upper() if m_grid else None
-                _push(cs, snr, grid)
-        return
+            return
 
     # dict
     if isinstance(value, dict):
@@ -988,33 +994,21 @@ class JS8TelegramBridge:
         if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
             try:
                 val = evt.get("value")
-                # Volcado del EVENTO COMPLETO, no solo 'value'
                 _dump_json("/tmp/js8_call_activity_evt_last.json", evt)
                 logger.debug(f"CALL_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val)}")
                 
-                # Intenta parsear 'value'
+                # 1) intenta con 'value'
                 update_heard_from_call_activity(val)
                 
-                # Fallback: si 'value' venía vacío, busca lista en otras claves del propio evt
-                if not STATE.heard:
-                    alt = None
-                    for k in ("stations","STATIONS","list","LIST","items","ITEMS","activity","ACTIVITY","payload","PAYLOAD"):
-                        v = evt.get(k)
-                        if isinstance(v, (list, dict, str)):
-                            alt = v
-                            break
-                    if alt is None:
-                        # a veces viene anidado en evt['params']['value']
-                        params = evt.get("params") or {}
-                        if isinstance(params, dict):
-                            alt = params.get("value")
-                    if alt is not None:
-                        logger.debug(f"CALL_ACTIVITY alt parse via key -> {_safe_preview(alt)}")
-                        update_heard_from_call_activity(alt)
+                # 2) y también con 'params' (donde viene tu mapa de offsets)
+                params = evt.get("params")
+                if isinstance(params, dict):
+                    update_heard_from_call_activity(params)
                 
                 logger.debug(f"CALL_ACTIVITY recibido: heard={len(STATE.heard)}")
                 self._notify_waiters("RX.CALL_ACTIVITY", val)
                 return
+
 
             except Exception as ex:
                 logger.debug(f"CALL_ACTIVITY parse error: {ex}")
@@ -1027,26 +1021,18 @@ class JS8TelegramBridge:
                 _dump_json("/tmp/js8_band_activity_evt_last.json", evt)
                 logger.debug(f"BAND_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val)}")
                 
+                # 1) 'value'
                 update_heard_from_call_activity(val)
                 
-                if not STATE.heard:
-                    alt = None
-                    for k in ("stations","STATIONS","list","LIST","items","ITEMS","activity","ACTIVITY","payload","PAYLOAD"):
-                        v = evt.get(k)
-                        if isinstance(v, (list, dict, str)):
-                            alt = v
-                            break
-                    if alt is None:
-                        params = evt.get("params") or {}
-                        if isinstance(params, dict):
-                            alt = params.get("value")
-                    if alt is not None:
-                        logger.debug(f"BAND_ACTIVITY alt parse via key -> {_safe_preview(alt)}")
-                        update_heard_from_call_activity(alt)
+                # 2) 'params' (tu caso)
+                params = evt.get("params")
+                if isinstance(params, dict):
+                    update_heard_from_call_activity(params)
                 
                 logger.debug(f"BAND_ACTIVITY recibido: heard={len(STATE.heard)}")
                 self._notify_waiters("RX.BAND_ACTIVITY", val)
                 return
+
 
             except Exception as ex:
                 logger.debug(f"BAND_ACTIVITY parse error: {ex}")
