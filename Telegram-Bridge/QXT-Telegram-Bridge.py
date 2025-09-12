@@ -1203,8 +1203,7 @@ class JS8TelegramBridge:
                 logger.debug(f"BAND_ACTIVITY parse error: {ex}")
             finally:
                 self._notify_waiters("RX.BAND_ACTIVITY", evt.get("value"))
-    return
-
+            return
 
         # ====== 4) RX.SPOT → heard list (/estaciones) ======
         if isinstance(evt, dict) and evt.get("type") == "RX.SPOT":
