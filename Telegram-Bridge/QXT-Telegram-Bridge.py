@@ -682,11 +682,20 @@ class JS8TelegramBridge:
 
     async def start_js8(self):
         if config.TRANSPORT.upper() == "TCP":
-            self.js8 = JS8ClientTCP(config.JS8_HOST, config.JS8_PORT, self.)
+            self.js8 = JS8ClientTCP(
+                config.JS8_HOST,
+                config.JS8_PORT,
+                self.on_js8_event,   # ← aquí estaba el error
+            )
             await self.js8.connect()
         else:
-            self.js8 = JS8ClientUDP(config.JS8_HOST, config.JS8_PORT, self.)
+            self.js8 = JS8ClientUDP(
+                config.JS8_HOST,
+                config.JS8_PORT,
+                self.on_js8_event,   # ← y aquí también, por si acaso
+            )
             await self.js8.connect()
+
 
     def _notify_waiters(self, event_type: str, value):
         lst = self._waiters.pop(event_type, [])
