@@ -23,6 +23,7 @@ import json
 import logging
 import re
 import config
+from i18n import t
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
