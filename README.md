@@ -18,7 +18,9 @@ Scripts:
 
 - [Telegram-Bridge](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/tree/main/Telegram-Bridge): sending and receiving messages from your JS8Call station in your Telegram App.
 
-- Frequency-Scheduler: change the frequency of your radio automacticlly on a scheduled schedule. (Obsiously it needs CAT control configured in JS8Call).
+- [Frequency-Scheduler](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/tree/main/Frequency-Scheduler): change the frequency of your radio automacticlly on a scheduled schedule. (Obsiously it needs CAT control configured in JS8Call).
+
+- Meshtastic-Bridge: work in progress...
 
   
 If you like this work:
