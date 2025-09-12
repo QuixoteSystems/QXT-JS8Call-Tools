@@ -1159,7 +1159,7 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 3) Datos en memoria
         total = len(STATE.heard)
         if total == 0:
-            await update.effective_message.reply_text(t("stations_none"))
+            await update.effective_message.reply_text(t("stations_none") if 't' in globals() else "Aún no he oído ninguna estación.")
             return
 
         now = time.time()
@@ -1177,22 +1177,17 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             age_s = max(0, int(now - (e.get("ts") or now)))
             age = f"{age_s//60}m" if age_s < 3600 else f"{age_s//3600}h"
             snr_txt = f"SNR {snr:+d}" if isinstance(snr, int) else ""
-            # Si usas i18n:
-            try:
-                return t("stations_line", cs=cs, snr_txt=snr_txt, grid=grid, age=age)
-            except Exception:
-                return f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago"
+            return (t("stations_line", cs=cs, snr_txt=snr_txt, grid=grid, age=age)
+                    if 't' in globals() else f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago")
 
         lines = [_fmt_line(e) for e in entries[:topn]]
 
-        # 4) Cabecera + envío (troceado)
-        try:
-            header = t("stations_header", n=topn)
-        except Exception:
-            header = f"📋 Recently heard (top {topn}):"
+        # 4) Cabecera + envío (troceado por si es largo)
+        header = (t("stations_header", n=topn)
+                  if 't' in globals() else f"📋 Recently heard (top {topn}):")
 
         msg = header + "\n" + "\n".join(lines)
-        for i in range(0, len(msg), 3500):  # por si es muy largo
+        for i in range(0, len(msg), 3500):
             await update.effective_message.reply_text(msg[i:i+3500])
 
     except Exception as ex:
@@ -1201,6 +1196,7 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_text("Error mostrando estaciones. Revisa el log.")
         except Exception:
             pass
+
 
 
 
