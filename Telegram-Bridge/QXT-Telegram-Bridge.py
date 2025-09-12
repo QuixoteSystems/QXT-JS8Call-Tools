@@ -783,7 +783,9 @@ class JS8TelegramBridge:
         # ====== 2) RX.CALL_ACTIVITY → heard list ======
         if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
             try:
-                update_heard_from_call_activity(evt.get("value"))
+                val = evt.get("value")
+                update_heard_from_call_activity(val)
+                logger.debug(f"CALL_ACTIVITY recibido: heard={len(STATE.heard)}")
             except Exception as ex:
                 logger.debug(f"CALL_ACTIVITY parse error: {ex}")
             return
@@ -791,7 +793,9 @@ class JS8TelegramBridge:
         # ====== 3) RX.BAND_ACTIVITY → heard list (fallback) ======
         if isinstance(evt, dict) and evt.get("type") == "RX.BAND_ACTIVITY":
             try:
-                update_heard_from_call_activity(evt.get("value"))
+                val = evt.get("value")
+                update_heard_from_call_activity(val)
+                logger.debug(f"BAND_ACTIVITY recibido: heard={len(STATE.heard)}")
             except Exception as ex:
                 logger.debug(f"BAND_ACTIVITY parse error: {ex}")
             return
@@ -842,7 +846,7 @@ BRIDGE = JS8TelegramBridge()
 
 # --------------- Telegram Bot Handlers -----------------
 
-# Pon esto cerca del resto de handlers
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error("Unhandled exception in handler", exc_info=context.error)
 
@@ -853,6 +857,24 @@ async def restricted_chat(update: Update) -> bool:
         # Silencioso: ignora otros chats
         return False
     return True
+
+# --------------- Telegram Commands  -----------------
+
+async def cmd_rescan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await restricted_chat(update):
+        return
+    try:
+        if BRIDGE.js8 and STATE.js8_connected:
+            await BRIDGE.js8.send({"type": "RX.GET_CALL_ACTIVITY", "value": ""})
+            await asyncio.sleep(1.2)
+            await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "value": ""})
+            await asyncio.sleep(0.6)
+    except Exception as e:
+        logger.debug(f"rescan error: {e}")
+    await update.effective_message.reply_text(
+        f"Heard en memoria: {len(STATE.heard)} estaciones."
+    )
+
 
 async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = 'HEARTBEAT ' + config.GRID
@@ -1058,6 +1080,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("last", cmd_last))
     application.add_handler(CommandHandler(["stations","estaciones"], cmd_stations))
     application.add_handler(CommandHandler(["heartbeat","hb"], cmd_heartbeat))
+    application.add_handler(CommandHandler(["rescan","scan"], cmd_rescan))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, plain_text_handler))
     application.add_error_handler(error_handler)
 
