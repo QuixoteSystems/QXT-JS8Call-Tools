@@ -286,7 +286,7 @@ def extract_from_to_text(evt: dict) -> Optional[tuple[str, str, str]]:
 
     return None
 
-CALLSIGN_RE = re.compile(r"^[A-Z0-9/]{3,}(?:-\d{1,2})?$", re.I)
+CALLSIGN_RE = re.compile(r'^(?=.*[A-Z])[A-Z0-9/]{3,}(?:-\d{1,2})?$', re.I)
 
 def _base_callsign(s: str) -> str:
     return (s or "").strip().split()[0].split("-")[0].upper()
@@ -1251,14 +1251,14 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # Límite
+        # 1) Límite
         try:
             limit = int(context.args[0]) if context.args else 20
             limit = max(1, min(limit, 200))
         except Exception:
             limit = 20
 
-        # Snapshot (espera a datos)
+        # 2) Snapshot (espera a datos)
         try:
             if BRIDGE and STATE.js8_connected:
                 timeout = getattr(config, "CALL_ACTIVITY_TIMEOUT", 2.5)
@@ -1267,6 +1267,7 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.debug(f"/stations snapshot error: {e}")
 
+        # 3) Datos en memoria
         total = len(STATE.heard)
         if total == 0:
             await update.effective_message.reply_text(
@@ -1277,10 +1278,10 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         now = time.time()
         my_grid = getattr(config, "GRID", None)
 
-        # Ordena por más reciente (por UTC real si existe)
+        # ordena por timestamp real (UTC si lo tenemos)
         entries = sorted(
             STATE.heard.values(),
-            key=lambda e: (e.get("ts") or 0),
+            key=lambda e: (e.get("utc") or e.get("ts") or 0),
             reverse=True,
         )
 
@@ -1294,14 +1295,37 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return f"{delta//3600}h"
             return f"{delta//86400}d"
 
+        def _derive_callsign(e: dict) -> str | None:
+            cs = e.get("callsign") or ""
+            if CALLSIGN_RE.match(cs):
+                return cs
+            # intenta sacarlo del TEXT original
+            txt = (e.get("text") or "").strip()
+            m = re.match(r'\s*([A-Z0-9/]{3,})\s*[:>]', txt, re.I)
+            if m and CALLSIGN_RE.match(m.group(1)):
+                return m.group(1).upper()
+            for tok in txt.split():
+                if CALLSIGN_RE.match(tok):
+                    return tok.upper()
+            return None
+
+        def _derive_grid(e: dict) -> str:
+            grid = e.get("grid") or ""
+            if grid:
+                return grid
+            txt = (e.get("text") or "")
+            m = re.search(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', txt, re.I)
+            return m.group(1).upper() if m else ""
+
         lines = []
         count = 0
         for e in entries:
-            cs = e.get("callsign") or ""
-            if not CALLSIGN_RE.match(cs):
-                continue  # omite offsets u otras claves que no son indicativos
+            cs = _derive_callsign(e)
+            if not cs:
+                continue  # descarta offsets u objetos raros
             snr = e.get("snr")
-            grid = e.get("grid") or ""
+            grid = _derive_grid(e)
+            # distancia en km, si tenemos ambos grids
             dist = None
             if my_grid and grid:
                 dist = grid_distance_km(my_grid, grid)
@@ -1327,10 +1351,6 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_text("Error mostrando estaciones. Revisa el log.")
         except Exception:
             pass
-
-
-
-
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
