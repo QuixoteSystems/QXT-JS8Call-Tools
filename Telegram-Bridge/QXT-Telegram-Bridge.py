@@ -788,9 +788,9 @@ class JS8TelegramBridge:
         self._waiters.setdefault("RX.CALL_ACTIVITY", []).append(fut)
         self._waiters.setdefault("RX.BAND_ACTIVITY", []).append(fut)
         try:
-            await self.js8.send({"type": "RX.GET_CALL_ACTIVITY", "params": {}})
+            await self.js8.send({"type": "RX.GET_CALL_ACTIVITY", "params": {}, "value": ""})
             await asyncio.sleep(0)  # ceder control
-            await self.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}})
+            await self.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}, "value": ""})
             await asyncio.wait_for(fut, timeout)
             return True
         except asyncio.TimeoutError:
@@ -956,8 +956,9 @@ class JS8TelegramBridge:
                 spot = parse_rx_spot(evt)
                 if spot and isinstance(spot.get("callsign"), str):
                     STATE.heard[spot["callsign"]] = spot
-            except Exception:
-                pass
+                    logger.debug(f"RX.SPOT: +{spot['callsign']} snr={spot.get('snr')} grid={spot.get('grid')}")
+            except Exception as ex:
+                    logger.debug(f"RX.SPOT parse error: {ex}")
             return
 
         # ====== 3) Reenvio generico (otros eventos dirigidos) ======
