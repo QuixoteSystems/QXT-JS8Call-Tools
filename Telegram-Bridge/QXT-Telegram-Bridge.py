@@ -1326,15 +1326,17 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 3) Datos en memoria
         total = len(STATE.heard)
         if total == 0:
-            await update.effective_message.reply_text(
-                t("stations_none") if "t" in globals() else "Aún no he oído ninguna estación."
-            )
+            try:
+                none_msg = t("stations_none")
+            except Exception:
+                none_msg = "Aún no he oído ninguna estación."
+            await update.effective_message.reply_text(none_msg)
             return
 
         now = time.time()
         my_grid = getattr(config, "GRID", None)
 
-        # ordena por timestamp real (UTC si lo tenemos)
+        # Ordena por timestamp real (UTC si lo tenemos)
         entries = sorted(
             STATE.heard.values(),
             key=lambda e: (e.get("utc") or e.get("ts") or 0),
@@ -1373,6 +1375,18 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             m = re.search(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', txt, re.I)
             return m.group(1).upper() if m else ""
 
+        # --- Plantillas i18n (con fallback) ---
+        try:
+            header_tpl = t("stations_header")
+        except Exception:
+            header_tpl = "📋 Recently heard (top {n} / total {total}):"
+
+        try:
+            line_tpl = t("stations_line")
+        except Exception:
+            line_tpl = "{cs:<9} {dist:<8} SNR {snr:<4} {grid:<6} {age} ago"
+
+        # --- Construcción de líneas usando i18n ---
         lines = []
         count = 0
         for e in entries:
@@ -1381,22 +1395,36 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue  # descarta offsets u objetos raros
             snr = e.get("snr")
             grid = _derive_grid(e)
+
             # distancia en km, si tenemos ambos grids
             dist = None
             if my_grid and grid:
                 dist = grid_distance_km(my_grid, grid)
-            dist_txt = f"{dist} km" if isinstance(dist, (int, float)) else "—"
-            snr_txt = f"{snr:+d}" if isinstance(snr, int) else "—"
-            age_txt = _age(e.get("utc") or e.get("ts"))
 
-            # EA1ABC   1234 km   SNR -10   IN80   7m ago
-            lines.append(f"{cs:<9} {dist_txt:<8} SNR {snr_txt:<4} {grid:<6} {age_txt} ago")
+            line_kwargs = {
+                "cs": cs,
+                "dist": f"{dist} km" if isinstance(dist, (int, float)) else "—",
+                "snr": f"{snr:+d}" if isinstance(snr, int) else "—",
+                "grid": grid or "",
+                "age": _age(e.get("utc") or e.get("ts")),
+            }
+
+            try:
+                line = line_tpl.format(**line_kwargs)
+            except Exception:
+                # Fallback por si la plantilla no cuadra
+                line = f"{cs:<9} {line_kwargs['dist']:<8} SNR {line_kwargs['snr']:<4} {line_kwargs['grid']:<6} {line_kwargs['age']} ago"
+
+            lines.append(line)
             count += 1
             if count >= limit:
                 break
 
-        header = (t("stations_header", n=count, total=total)
-                  if "t" in globals() else f"📋 Recently heard (top {count} / total {total}):")
+        try:
+            header = header_tpl.format(n=count, total=total)
+        except Exception:
+            header = f"📋 Recently heard (top {count} / total {total}):"
+
         msg = header + "\n" + "\n".join(lines) if lines else header + "\n—"
         for i in range(0, len(msg), 3500):
             await update.effective_message.reply_text(msg[i:i+3500])
@@ -1407,6 +1435,7 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_text("Error mostrando estaciones. Revisa el log.")
         except Exception:
             pass
+
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
