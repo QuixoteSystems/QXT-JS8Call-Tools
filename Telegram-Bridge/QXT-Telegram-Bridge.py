@@ -405,29 +405,28 @@ def extract_from_to_text(evt: dict):
 
 def parse_rx_spot(evt: dict) -> Optional[dict]:
     """
-    Extrae info de un evento RX.SPOT (panel derecho "heard") y la normaliza.
-    Devuelve un dict: {callsign, snr, grid, freq, offset, ts}
+    Extrae info de un RX.SPOT “estación oída”.
+    Campos típicos: CALLSIGN, SNR, GRID, FREQ, OFFSET.
     """
     if not isinstance(evt, dict) or evt.get("type") != "RX.SPOT":
         return None
     v = evt.get("value") or {}
-
-    cs = v.get("CALLSIGN") or v.get("STATION") or v.get("from") or v.get("CALL")
+    cs = v.get("CALLSIGN") or v.get("STATION") or v.get("from") or v.get("CALL") or v.get("call")
     if not isinstance(cs, str):
         return None
 
-    # Sanitiza SNR (puede llegar como str)
+    # SNR a int
     snr = v.get("SNR")
     try:
         snr = int(snr)
     except Exception:
         try:
-            snr = round(float(snr))
+            snr = int(round(float(snr)))
         except Exception:
             snr = None
 
-    grid = v.get("GRID") or v.get("grid")
-    freq = v.get("FREQ") or v.get("freq")
+    grid   = v.get("GRID")   or v.get("grid")   or v.get("LOC") or v.get("locator")
+    freq   = v.get("FREQ")   or v.get("freq")   or v.get("DIAL") or v.get("dial")
     offset = v.get("OFFSET") or v.get("offset")
 
     return {
@@ -438,6 +437,7 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
         "offset": offset,
         "ts": time.time(),
     }
+
 
 
 
