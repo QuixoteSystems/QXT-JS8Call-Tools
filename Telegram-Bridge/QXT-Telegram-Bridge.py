@@ -678,7 +678,7 @@ async def poll_call_activity_loop():
 class JS8TelegramBridge:
     def __init__(self):
         self.js8 = None  # JS8ClientTCP | JS8ClientUDP
-      self._waiters: dict[str, list[asyncio.Future]] = {}
+        self._waiters: dict[str, list[asyncio.Future]] = {}
 
     async def start_js8(self):
         if config.TRANSPORT.upper() == "TCP":
