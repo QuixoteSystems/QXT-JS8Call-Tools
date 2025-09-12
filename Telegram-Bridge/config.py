@@ -25,5 +25,11 @@ FORWARD_QSO_WINDOW = True                  # activa el sondeo del QSO window
 QSO_POLL_SECONDS   = 2.0                   # intervalo de sondeo
 QSO_ID_CACHE_SIZE = 2000                   # cuántos IDs recordamos para no duplicar
 
+# ======= TELEGRAM
+
+TG_CONNECT_TIMEOUT = 20
+TG_READ_TIMEOUT = 60
+TG_WRITE_TIMEOUT = 60
+
 
 # =================================================
