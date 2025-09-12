@@ -89,6 +89,29 @@ else:
 
 # -----  JS8 API Utils (JSON line-based) -----
 
+def _dump_json(path: str, obj) -> None:
+    try:
+        import json as _json
+        with open(path, "w", encoding="utf-8") as f:
+            if isinstance(obj, (dict, list)):
+                _json.dump(obj, f, ensure_ascii=False, indent=2)
+            else:
+                f.write(str(obj))
+        logger.debug(f"dump -> {path}")
+    except Exception as e:
+        logger.debug(f"dump error {path}: {e}")
+
+def _safe_preview(val, maxlen: int = 500) -> str:
+    try:
+        if isinstance(val, (dict, list)):
+            return json.dumps(val, ensure_ascii=False)[:maxlen]
+        if isinstance(val, (bytes, bytearray)):
+            return bytes(val).decode("utf-8", "ignore")[:maxlen]
+        return str(val)[:maxlen]
+    except Exception:
+        return repr(val)[:maxlen]
+
+
 def _safe_preview(val, maxlen: int = 800) -> str:
     try:
         if isinstance(val, (dict, list)):
@@ -479,12 +502,12 @@ def _extract_callsign_from_line(line: str) -> Optional[str]:
 
 def update_heard_from_call_activity(value):
     """
-    Normaliza la 'pantalla derecha' (CALL/BAND ACTIVITY) a STATE.heard.
+    Normaliza la 'pantalla derecha' a STATE.heard.
     Acepta:
-      - list[dict] con claves tipo CALLSIGN/SNR/GRID/FREQ/OFFSET
-      - dict con lista dentro (p.ej. {'stations': [...]})
+      - list[dict] con claves típicas
+      - dict con lista dentro (stations/list/items/activity/...)
       - dict mapeando CALLSIGN -> dict(info)
-      - str multilinea o str con JSON embebido
+      - str multilinea o JSON en str
     """
     GRID_RE = re.compile(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', re.I)
 
@@ -515,18 +538,16 @@ def update_heard_from_call_activity(value):
         }
         STATE.heard[base] = entry
 
-    # --- 0) value None: nada que hacer
     if value is None:
         return
 
-    # --- 1) Si viene como bytes -> str
     if isinstance(value, (bytes, bytearray)):
         try:
             value = bytes(value).decode("utf-8", "ignore")
         except Exception:
             value = str(value)
 
-    # --- 2) Si es str y parece JSON -> decodifica y reintenta
+    # str → intenta JSON y luego texto
     if isinstance(value, str):
         s = value.strip()
         if s.startswith("{") or s.startswith("["):
@@ -534,18 +555,12 @@ def update_heard_from_call_activity(value):
                 decoded = json.loads(s)
                 return update_heard_from_call_activity(decoded)
             except Exception:
-                pass  # si no era JSON válido, lo tratamos como texto normal
-        # Trata como texto multilinea "bonito"
+                pass
         for line in s.splitlines():
             line = line.strip()
             if not line:
                 continue
-            toks = line.split()
-            cs = None
-            for tok in toks:
-                if CALLSIGN_RE.match(tok):
-                    cs = tok
-                    break
+            cs = next((tok for tok in line.split() if CALLSIGN_RE.match(tok)), None)
             if not cs:
                 continue
             m_snr = re.search(r'\bSNR\s*([+-]?\d{1,2})\b', line, re.I)
@@ -555,7 +570,7 @@ def update_heard_from_call_activity(value):
             _push(cs, snr, grid)
         return
 
-    # --- 3) Si es list: cada item puede ser dict o str
+    # list
     if isinstance(value, list):
         for it in value:
             if isinstance(it, dict):
@@ -569,12 +584,7 @@ def update_heard_from_call_activity(value):
                 line = it.strip()
                 if not line:
                     continue
-                toks = line.split()
-                cs = None
-                for tok in toks:
-                    if CALLSIGN_RE.match(tok):
-                        cs = tok
-                        break
+                cs = next((tok for tok in line.split() if CALLSIGN_RE.match(tok)), None)
                 if not cs:
                     continue
                 m_snr = re.search(r'\bSNR\s*([+-]?\d{1,2})\b', line, re.I)
@@ -584,59 +594,56 @@ def update_heard_from_call_activity(value):
                 _push(cs, snr, grid)
         return
 
-    # --- 4) Si es dict: varias posibilidades
+    # dict
     if isinstance(value, dict):
-        # 4.a) Lista dentro con nombres típicos
-        for key in ("stations", "STATIONS", "list", "LIST", "items", "ITEMS", "value", "VALUES", "activity", "ACTIVITY"):
+        # a) nombres comunes de lista
+        for key in ("stations","STATIONS","list","LIST","items","ITEMS","activity","ACTIVITY","values","VALUES"):
             lst = value.get(key)
             if isinstance(lst, list):
                 update_heard_from_call_activity(lst)
                 return
-            # a veces anidan otro dict con lista dentro
             if isinstance(lst, dict):
-                # intenta listas dentro del dict
-                for k2, v2 in lst.items():
-                    if isinstance(v2, list):
-                        update_heard_from_call_activity(v2)
+                # por si anidan otra lista dentro
+                for _k, _v in lst.items():
+                    if isinstance(_v, list):
+                        update_heard_from_call_activity(_v)
                         return
 
-        # 4.b) Mapa CALLSIGN -> dict(info)
-        #     (si el 60% de las claves parecen indicativos, tratamos así)
+        # b) mapa CALLSIGN -> dict(info)
         keys = list(value.keys())
-        if keys:
-            looks_like_calls = [k for k in keys if isinstance(k, str) and CALLSIGN_RE.match(k)]
-            if len(looks_like_calls) >= max(1, int(0.6 * len(keys))):
-                for cs, info in value.items():
-                    if not isinstance(cs, str):
-                        continue
-                    if isinstance(info, dict):
-                        snr  = _to_int(info.get("SNR"))
-                        grid = info.get("GRID") or info.get("grid") or info.get("LOC") or info.get("locator")
-                        freq = info.get("FREQ") or info.get("freq") or info.get("DIAL") or info.get("dial")
-                        off  = info.get("OFFSET") or info.get("offset")
-                        _push(cs, snr, grid, freq, off)
-                    else:
-                        _push(cs)
-                return
+        looks = [k for k in keys if isinstance(k, str) and CALLSIGN_RE.match(k)]
+        if looks and len(looks) >= max(1, int(0.6 * len(keys))):
+            for cs, info in value.items():
+                if not isinstance(cs, str):
+                    continue
+                if isinstance(info, dict):
+                    snr  = _to_int(info.get("SNR"))
+                    grid = info.get("GRID") or info.get("grid") or info.get("LOC") or info.get("locator")
+                    freq = info.get("FREQ") or info.get("freq") or info.get("DIAL") or info.get("dial")
+                    off  = info.get("OFFSET") or info.get("offset")
+                    _push(cs, snr, grid, freq, off)
+                else:
+                    _push(cs)
+            return
 
-        # 4.c) Un solo objeto estación
+        # c) un solo objeto estación
         cs = value.get("CALLSIGN") or value.get("STATION") or value.get("from") or value.get("CALL") or value.get("call")
         if cs:
-            snr = _to_int(value.get("SNR"))
+            snr  = _to_int(value.get("SNR"))
             grid = value.get("GRID") or value.get("grid") or value.get("LOC") or value.get("locator")
             freq = value.get("FREQ") or value.get("freq") or value.get("DIAL") or value.get("dial")
             off  = value.get("OFFSET") or value.get("offset")
             _push(cs, snr, grid, freq, off)
             return
 
-        # 4.d) Si nada de lo anterior, como último recurso mira campos de texto
-        for k in ("text", "TEXT", "raw", "RAW", "dump", "DUMP"):
+        # d) campos de texto
+        for k in ("text","TEXT","raw","RAW","dump","DUMP","value","VALUE"):
             txt = value.get(k)
-            if isinstance(txt, str) and txt.strip():
+            if isinstance(txt, (str, list, dict)):
                 update_heard_from_call_activity(txt)
                 return
-
         return
+
 
 
 # --------------- Estados compartidos ----------------
@@ -834,27 +841,22 @@ class JS8TelegramBridge:
                 fut.set_result(value)
 
 
-    async def get_heard_snapshot(self, timeout: float = 2.5) -> bool:
-        """Envía GET de Call/Band Activity y espera a la primera respuesta."""
+    async def get_heard_snapshot(self, timeout: float = 3.5) -> bool:
         if not self.js8 or not STATE.js8_connected:
             return False
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future = loop.create_future()
-        # registrar el futuro para cualquiera de las dos respuestas
-        self._waiters.setdefault("RX.CALL_ACTIVITY", []).append(fut)
-        self._waiters.setdefault("RX.BAND_ACTIVITY", []).append(fut)
-        try:
-            await self.js8.send({"type": "RX.GET_CALL_ACTIVITY", "params": {}, "value": ""})
-            await asyncio.sleep(0)  # ceder control
-            await self.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}, "value": ""})
-            await asyncio.wait_for(fut, timeout)
-            return True
-        except asyncio.TimeoutError:
-            # limpieza si no llegó nada
-            for k in ("RX.CALL_ACTIVITY", "RX.BAND_ACTIVITY"):
-                if k in self._waiters:
-                    self._waiters[k] = [x for x in self._waiters[k] if x is not fut]
-            return False
+        # envía ambas peticiones (algunas builds necesitan 'params' y 'value')
+        await self.js8.send({"type": "RX.GET_CALL_ACTIVITY", "params": {}, "value": ""})
+        await asyncio.sleep(0)
+        await self.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}, "value": ""})
+    
+        # espera activa a que STATE.heard tenga algo
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if STATE.heard:
+                return True
+            await asyncio.sleep(0.2)
+        return bool(STATE.heard)
+
 
 
     async def on_js8_event(self, evt: dict):
@@ -986,12 +988,34 @@ class JS8TelegramBridge:
         if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
             try:
                 val = evt.get("value")
-                logger.debug(f"CALL_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val, 300)}")
-                _dump_activity_debug(val)
+                # Volcado del EVENTO COMPLETO, no solo 'value'
+                _dump_json("/tmp/js8_call_activity_evt_last.json", evt)
+                logger.debug(f"CALL_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val)}")
+                
+                # Intenta parsear 'value'
                 update_heard_from_call_activity(val)
+                
+                # Fallback: si 'value' venía vacío, busca lista en otras claves del propio evt
+                if not STATE.heard:
+                    alt = None
+                    for k in ("stations","STATIONS","list","LIST","items","ITEMS","activity","ACTIVITY","payload","PAYLOAD"):
+                        v = evt.get(k)
+                        if isinstance(v, (list, dict, str)):
+                            alt = v
+                            break
+                    if alt is None:
+                        # a veces viene anidado en evt['params']['value']
+                        params = evt.get("params") or {}
+                        if isinstance(params, dict):
+                            alt = params.get("value")
+                    if alt is not None:
+                        logger.debug(f"CALL_ACTIVITY alt parse via key -> {_safe_preview(alt)}")
+                        update_heard_from_call_activity(alt)
+                
                 logger.debug(f"CALL_ACTIVITY recibido: heard={len(STATE.heard)}")
                 self._notify_waiters("RX.CALL_ACTIVITY", val)
                 return
+
             except Exception as ex:
                 logger.debug(f"CALL_ACTIVITY parse error: {ex}")
             return
@@ -1000,12 +1024,30 @@ class JS8TelegramBridge:
         if isinstance(evt, dict) and evt.get("type") == "RX.BAND_ACTIVITY":
             try:
                 val = evt.get("value")
-                logger.debug(f"BAND_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val, 300)}")
-                _dump_activity_debug(val)
+                _dump_json("/tmp/js8_band_activity_evt_last.json", evt)
+                logger.debug(f"BAND_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val)}")
+                
                 update_heard_from_call_activity(val)
+                
+                if not STATE.heard:
+                    alt = None
+                    for k in ("stations","STATIONS","list","LIST","items","ITEMS","activity","ACTIVITY","payload","PAYLOAD"):
+                        v = evt.get(k)
+                        if isinstance(v, (list, dict, str)):
+                            alt = v
+                            break
+                    if alt is None:
+                        params = evt.get("params") or {}
+                        if isinstance(params, dict):
+                            alt = params.get("value")
+                    if alt is not None:
+                        logger.debug(f"BAND_ACTIVITY alt parse via key -> {_safe_preview(alt)}")
+                        update_heard_from_call_activity(alt)
+                
                 logger.debug(f"BAND_ACTIVITY recibido: heard={len(STATE.heard)}")
                 self._notify_waiters("RX.BAND_ACTIVITY", val)
                 return
+
             except Exception as ex:
                 logger.debug(f"BAND_ACTIVITY parse error: {ex}")
             return
