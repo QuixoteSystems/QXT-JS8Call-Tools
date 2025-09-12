@@ -605,7 +605,7 @@ async def on_raw_triplet(frm: str, to: str, txt: str):
     if not to_is_me_or_monitored_group(to):
         return
     STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = frm
-    await send_to_telegram(f"📡 JS8 ⟶ Telegram\nDe: {frm}\nPara: {to}\n\n{txt}")
+    await send_to_telegram(t("rx_generic", frm=frm, to=to, txt=txt))
 
 async def poll_qso_text_loop():
     """
@@ -746,7 +746,7 @@ class JS8TelegramBridge:
 
                 # 5) Reenvia y recuerda ID (si hay)
                 self._qso_last_forwarded = line
-                await send_to_telegram(f"🟢 Mensaje Recibido:\n{line}")
+                await send_to_telegram(t("rx_qso_line", line=line))
                 if qso_id:
                     remember_forwarded_id(qso_id)
                 return True
@@ -825,7 +825,7 @@ class JS8TelegramBridge:
         except NameError:
             pass
 
-        await send_to_telegram(f"📡 JS8 ⟶ Telegram\nDe: {frm}\nPara: {to}\n\n{txt}")
+        await send_to_telegram(t("rx_generic", frm=frm, to=to, txt=txt))
 
 
 
@@ -861,18 +861,18 @@ async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
     if len(context.args) > 0:
-        await update.effective_message.reply_text("Uso: /heartbeat o /hb")
+        await update.effective_message.reply_text(t("hb_usage"))
         return
     try:
         callsign = "@HB"
         await BRIDGE.tx_message(callsign, text)
         logger.info(f"TX → JS8: @HB {text}")
-        await update.effective_message.reply_text(f"🔴 Heartbeat Enviado:\n @HB {text}")
+        await update.effective_message.reply_text(t("hb_sent", text=text))
     except Exception as e:
-        await update.effective_message.reply_text(f"Error enviando a HEARTBEAT: {e}")
+        await update.effective_message.reply_text(f"Error sending HEARTBEAT: {e}")
 
 
-async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
 
@@ -894,118 +894,93 @@ async def cmd_estaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.debug(f"No se pudo pedir CALL/BAND_ACTIVITY: {e}")
 
     if not STATE.heard:
-        await update.effective_message.reply_text("Aún no he oído ninguna estación.")
+        await update.effective_message.reply_text(t("stations_none"))
         return
 
-    now = time.time()
-    # Ordena por más reciente
-    entries = sorted(
-        STATE.heard.values(),
-        key=lambda e: e.get("ts", 0),
-        reverse=True
-    )
-
-    lines = []
+    header = t("stations_header", n=min(limit, len(entries)))
+    lines_fmt = []
     for e in entries[:limit]:
         cs   = e.get("callsign", "")
         snr  = e.get("snr")
         grid = e.get("grid") or ""
         age_s = max(0, int(now - (e.get("ts") or now)))
-        if age_s < 3600:
-            age = f"{age_s//60}m"
-        else:
-            age = f"{age_s//3600}h"
+        age = f"{age_s//60}m" if age_s < 3600 else f"{age_s//3600}h"
         snr_txt = f"SNR {snr:+d}" if isinstance(snr, int) else ""
-        lines.append(f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago")
-
-    logger.debug(f"/stations entries={len(entries)} limit={limit}")
-    header = f"📋 Recently heard (top {min(limit, len(entries))}):"
-    msg = header + "\n" + "\n".join(lines)
+        lines_fmt.append(t("stations_line", cs=cs, snr_txt=snr_txt, grid=grid, age=age))
+    
+    msg = header + "\n" + "\n".join(lines_fmt)
     await update.effective_message.reply_text(msg)
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
-    lines = [
-        "🤖 QXT Bridge – Comandos:",
-        " "
-        "/help – Muestra este mensaje",
-        "/status – Estado del Bridge",
-        "/to CALLSIGN mensaje – Envía mensaje a indicativo",
-        "/group @GRUPO mensaje – Envía a grupo",
-        "/last mensaje – Responde al último corresponsal",
-        "/stations [N] – Lista últimas estaciones oídas",
-        "/heartbeat o /hb – Envía Heartbeat a @HB",
-    ]
-    await update.effective_message.reply_text("\n".join(lines))
+    await update.effective_message.reply_text(t("help"))
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
     js8_ok = "✅" if STATE.js8_connected else "❌"
     last = STATE.last_from_per_chat.get(config.TELEGRAM_CHAT_ID, "—")
     err = STATE.js8_last_error or "—"
-    msg = (
-        f"🔎 Estado del QXT Bridge\n"
-        f"JS8: {js8_ok}\n"
-        f"Último corresponsal: {last}\n"
-        f"Último error JS8: {err}\n"
-        f"Grupos vigilados: {', '.join(config.MONITORED_GROUPS) if config.MONITORED_GROUPS else '—'}"
+    groups = ", ".join(config.MONITORED_GROUPS) if config.MONITORED_GROUPS else "—"
+    await update.effective_message.reply_text(
+        t("status", js8=js8_ok, last=last, err=err, groups=groups)
     )
-    await update.effective_message.reply_text(msg)
+
 
 
 async def cmd_to(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
     if len(context.args) < 2:
-        await update.effective_message.reply_text("Uso: /to CALLSIGN mensaje")
+        await update.effective_message.reply_text(t("to_usage"))
         return
     callsign = context.args[0].upper()
     text = " ".join(context.args[1:])
     try:
         await BRIDGE.tx_message(callsign, text)
-        await update.effective_message.reply_text(f"🔴 Mensaje Enviado:\n {callsign}: {text}")
+        await update.effective_message.reply_text(t("msg_sent", who=callsign, text=text))
     except Exception as e:
-        await update.effective_message.reply_text(f"Error enviando a {callsign}: {e}")
+        await update.effective_message.reply_text(t("err_sending", who=callsign, err=e))
 
 
 async def cmd_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
     if len(context.args) < 2:
-        await update.effective_message.reply_text("Uso: /group @GRUPO mensaje")
+        await update.effective_message.reply_text(t("group_usage"))
         return
     group = context.args[0]
     if not group.startswith("@"):
-        await update.effective_message.reply_text("El grupo debe empezar por @, p.ej. @QXTNET")
+        await update.effective_message.reply_text(t("group_needs_at"))
         return
     text = " ".join(context.args[1:])
     try:
         await BRIDGE.tx_message(group, text)
-        await update.effective_message.reply_text(f"🔴 Mensaje Enviado:\n {group}: {text}")
+        await update.effective_message.reply_text(t("msg_sent", who=group, text=text))
     except Exception as e:
-        await update.effective_message.reply_text(f"Error enviando a {group}: {e}")
+        await update.effective_message.reply_text(t("err_sending", who=group, err=e))
 
 
 async def cmd_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
     if not context.args:
-        await update.effective_message.reply_text("Uso: /last mensaje   (responde al último corresponsal recibido)")
+        await update.effective_message.reply_text(t("last_usage"))
         return
     last = STATE.last_from_per_chat.get(config.TELEGRAM_CHAT_ID)
     if not last:
-        await update.effective_message.reply_text("No hay corresponsal previo en memoria.")
+        await update.effective_message.reply_text(t("last_none"))
         return
     text = " ".join(context.args)
     try:
         await BRIDGE.tx_message(last, text)
-        await update.effective_message.reply_text(f"Enviado a {last}: {text}")
+        await update.effective_message.reply_text(t("sent_to", who=last, text=text))
     except Exception as e:
-        await update.effective_message.reply_text(f"Error enviando a {last}: {e}")
+        await update.effective_message.reply_text(t("err_sending", who=last, err=e))
 
 
 # (Opcional) también permitir mensajes de texto “libres” como /last:
@@ -1081,7 +1056,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("to", cmd_to))
     application.add_handler(CommandHandler("group", cmd_group))
     application.add_handler(CommandHandler("last", cmd_last))
-    application.add_handler(CommandHandler(["stations","estaciones"], cmd_estaciones))
+    application.add_handler(CommandHandler(["stations","estaciones"], cmd_stations))
     application.add_handler(CommandHandler(["heartbeat","hb"], cmd_heartbeat))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, plain_text_handler))
     application.add_error_handler(error_handler)
