@@ -87,7 +87,30 @@ else:
         logging.getLogger(name).setLevel(logging.DEBUG)
 
 
-# ----- Utilidades de JS8 API (JSON line-based) -----
+# -----  JS8 API Utils (JSON line-based) -----
+
+def _safe_preview(val, maxlen: int = 800) -> str:
+    try:
+        if isinstance(val, (dict, list)):
+            return json.dumps(val, ensure_ascii=False)[:maxlen]
+        if isinstance(val, (bytes, bytearray)):
+            return bytes(val).decode("utf-8", "ignore")[:maxlen]
+        return str(val)[:maxlen]
+    except Exception:
+        return repr(val)[:maxlen]
+
+def _dump_activity_debug(val) -> None:
+    try:
+        path = "/tmp/js8_call_activity_last.txt"
+        with open(path, "w", encoding="utf-8") as f:
+            if isinstance(val, (dict, list)):
+                json.dump(val, f, ensure_ascii=False, indent=2)
+            else:
+                f.write(str(val))
+        logger.debug(f"CALL/BAND activity dump -> {path}")
+    except Exception as e:
+        logger.debug(f"dump_activity_debug error: {e}")
+
 
 _QSO_ID_RE = re.compile(r'[-–—]\s*\((\d+)\)\s*[-–—]')  # busca "- (1234) -" en la línea
 
@@ -460,7 +483,8 @@ def update_heard_from_call_activity(value):
     Acepta:
       - list[dict] con claves tipo CALLSIGN/SNR/GRID/FREQ/OFFSET
       - dict con lista dentro (p.ej. {'stations': [...]})
-      - str multilinea (intentamos extraer indicativo, SNR y grid)
+      - dict mapeando CALLSIGN -> dict(info)
+      - str multilinea o str con JSON embebido
     """
     GRID_RE = re.compile(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', re.I)
 
@@ -491,62 +515,28 @@ def update_heard_from_call_activity(value):
         }
         STATE.heard[base] = entry
 
-    # --- casos por tipo ---
+    # --- 0) value None: nada que hacer
     if value is None:
         return
 
-    # list => cada item puede ser dict o str
-    if isinstance(value, list):
-        for it in value:
-            if isinstance(it, dict):
-                cs = it.get("CALLSIGN") or it.get("STATION") or it.get("from") or it.get("CALL") or it.get("call")
-                snr = _to_int(it.get("SNR"))
-                grid = it.get("GRID") or it.get("grid") or it.get("LOC") or it.get("locator")
-                freq = it.get("FREQ") or it.get("freq") or it.get("DIAL") or it.get("dial")
-                off  = it.get("OFFSET") or it.get("offset")
-                _push(cs, snr, grid, freq, off)
-            elif isinstance(it, str):
-                line = it.strip()
-                if not line:
-                    continue
-                # primer token con pinta de indicativo
-                toks = line.split()
-                cs = None
-                for tok in toks:
-                    if CALLSIGN_RE.match(tok):
-                        cs = tok
-                        break
-                if not cs:
-                    continue
-                # SNR si aparece "SNR -10"
-                m_snr = re.search(r'\bSNR\s*([+-]?\d{1,2})\b', line, re.I)
-                snr = _to_int(m_snr.group(1)) if m_snr else None
-                # GRID tipo IN80, IN80aa, etc.
-                m_grid = GRID_RE.search(line)
-                grid = m_grid.group(1).upper() if m_grid else None
-                _push(cs, snr, grid)
-        return
+    # --- 1) Si viene como bytes -> str
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = bytes(value).decode("utf-8", "ignore")
+        except Exception:
+            value = str(value)
 
-    # dict => busca una lista dentro
-    if isinstance(value, dict):
-        for key in ("stations", "STATIONS", "list", "LIST", "items", "ITEMS", "value"):
-            lst = value.get(key)
-            if isinstance(lst, list):
-                update_heard_from_call_activity(lst)
-                return
-        # si no hay lista, intenta tratarlo como un único objeto "estación"
-        cs = value.get("CALLSIGN") or value.get("STATION") or value.get("from") or value.get("CALL") or value.get("call")
-        if cs:
-            snr = _to_int(value.get("SNR"))
-            grid = value.get("GRID") or value.get("grid") or value.get("LOC") or value.get("locator")
-            freq = value.get("FREQ") or value.get("freq") or value.get("DIAL") or value.get("dial")
-            off  = value.get("OFFSET") or value.get("offset")
-            _push(cs, snr, grid, freq, off)
-        return
-
-    # str multilinea
+    # --- 2) Si es str y parece JSON -> decodifica y reintenta
     if isinstance(value, str):
-        for line in value.splitlines():
+        s = value.strip()
+        if s.startswith("{") or s.startswith("["):
+            try:
+                decoded = json.loads(s)
+                return update_heard_from_call_activity(decoded)
+            except Exception:
+                pass  # si no era JSON válido, lo tratamos como texto normal
+        # Trata como texto multilinea "bonito"
+        for line in s.splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -565,23 +555,89 @@ def update_heard_from_call_activity(value):
             _push(cs, snr, grid)
         return
 
-
-    # texto multilinea del panel derecho
-    if isinstance(value, str):
-        lines = [l.strip() for l in value.splitlines() if l.strip()]
-        for l in lines:
-            csb = _extract_callsign_from_line(l)
-            if not csb:
-                continue
-            STATE.heard[csb] = {
-                "callsign": csb,
-                "snr": None,
-                "grid": None,
-                "freq": None,
-                "offset": None,
-                "ts": now,
-            }
+    # --- 3) Si es list: cada item puede ser dict o str
+    if isinstance(value, list):
+        for it in value:
+            if isinstance(it, dict):
+                cs = it.get("CALLSIGN") or it.get("STATION") or it.get("from") or it.get("CALL") or it.get("call")
+                snr = _to_int(it.get("SNR"))
+                grid = it.get("GRID") or it.get("grid") or it.get("LOC") or it.get("locator")
+                freq = it.get("FREQ") or it.get("freq") or it.get("DIAL") or it.get("dial")
+                off  = it.get("OFFSET") or it.get("offset")
+                _push(cs, snr, grid, freq, off)
+            elif isinstance(it, str):
+                line = it.strip()
+                if not line:
+                    continue
+                toks = line.split()
+                cs = None
+                for tok in toks:
+                    if CALLSIGN_RE.match(tok):
+                        cs = tok
+                        break
+                if not cs:
+                    continue
+                m_snr = re.search(r'\bSNR\s*([+-]?\d{1,2})\b', line, re.I)
+                snr = _to_int(m_snr.group(1)) if m_snr else None
+                m_grid = GRID_RE.search(line)
+                grid = m_grid.group(1).upper() if m_grid else None
+                _push(cs, snr, grid)
         return
+
+    # --- 4) Si es dict: varias posibilidades
+    if isinstance(value, dict):
+        # 4.a) Lista dentro con nombres típicos
+        for key in ("stations", "STATIONS", "list", "LIST", "items", "ITEMS", "value", "VALUES", "activity", "ACTIVITY"):
+            lst = value.get(key)
+            if isinstance(lst, list):
+                update_heard_from_call_activity(lst)
+                return
+            # a veces anidan otro dict con lista dentro
+            if isinstance(lst, dict):
+                # intenta listas dentro del dict
+                for k2, v2 in lst.items():
+                    if isinstance(v2, list):
+                        update_heard_from_call_activity(v2)
+                        return
+
+        # 4.b) Mapa CALLSIGN -> dict(info)
+        #     (si el 60% de las claves parecen indicativos, tratamos así)
+        keys = list(value.keys())
+        if keys:
+            looks_like_calls = [k for k in keys if isinstance(k, str) and CALLSIGN_RE.match(k)]
+            if len(looks_like_calls) >= max(1, int(0.6 * len(keys))):
+                for cs, info in value.items():
+                    if not isinstance(cs, str):
+                        continue
+                    if isinstance(info, dict):
+                        snr  = _to_int(info.get("SNR"))
+                        grid = info.get("GRID") or info.get("grid") or info.get("LOC") or info.get("locator")
+                        freq = info.get("FREQ") or info.get("freq") or info.get("DIAL") or info.get("dial")
+                        off  = info.get("OFFSET") or info.get("offset")
+                        _push(cs, snr, grid, freq, off)
+                    else:
+                        _push(cs)
+                return
+
+        # 4.c) Un solo objeto estación
+        cs = value.get("CALLSIGN") or value.get("STATION") or value.get("from") or value.get("CALL") or value.get("call")
+        if cs:
+            snr = _to_int(value.get("SNR"))
+            grid = value.get("GRID") or value.get("grid") or value.get("LOC") or value.get("locator")
+            freq = value.get("FREQ") or value.get("freq") or value.get("DIAL") or value.get("dial")
+            off  = value.get("OFFSET") or value.get("offset")
+            _push(cs, snr, grid, freq, off)
+            return
+
+        # 4.d) Si nada de lo anterior, como último recurso mira campos de texto
+        for k in ("text", "TEXT", "raw", "RAW", "dump", "DUMP"):
+            txt = value.get(k)
+            if isinstance(txt, str) and txt.strip():
+                update_heard_from_call_activity(txt)
+                return
+
+        return
+
 
 # --------------- Estados compartidos ----------------
 
@@ -930,6 +986,8 @@ class JS8TelegramBridge:
         if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
             try:
                 val = evt.get("value")
+                logger.debug(f"CALL_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val, 300)}")
+                _dump_activity_debug(val)
                 update_heard_from_call_activity(val)
                 logger.debug(f"CALL_ACTIVITY recibido: heard={len(STATE.heard)}")
                 self._notify_waiters("RX.CALL_ACTIVITY", val)
@@ -942,6 +1000,8 @@ class JS8TelegramBridge:
         if isinstance(evt, dict) and evt.get("type") == "RX.BAND_ACTIVITY":
             try:
                 val = evt.get("value")
+                logger.debug(f"BAND_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val, 300)}")
+                _dump_activity_debug(val)
                 update_heard_from_call_activity(val)
                 logger.debug(f"BAND_ACTIVITY recibido: heard={len(STATE.heard)}")
                 self._notify_waiters("RX.BAND_ACTIVITY", val)
