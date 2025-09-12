@@ -37,7 +37,7 @@ STRINGS = {
     "to_usage": "Uso: /to CALLSIGN mensaje",
     "group_usage": "Uso: /group @GRUPO mensaje",
     "group_needs_at": "El grupo debe empezar por @, p.ej. @QXTNET",
-    "last_usage": "Uso: /last mensaje   (responde al último corresponsal recibido)",
+    "last_usage": "Uso: /last mensaje (responde al último corresponsal recibido)",
     "last_none": "No hay corresponsal previo en memoria.",
     "sent_to": "Enviado a {who}: {text}",
     "msg_sent": "🔴 Mensaje Enviado:\n {who}: {text}",
