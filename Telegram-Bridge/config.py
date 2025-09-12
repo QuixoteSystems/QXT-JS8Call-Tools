@@ -19,17 +19,17 @@ TRANSPORT          = "TCP"                                   # Protocolo del Pue
 LANG               = "es"                                    # Write "en" for English strings
 
 
-
-IGNORE_MESSAGES_FROM_SELF = True           # Para seguridad: evita bucles reenviando lo que tú mismo transmites
-FORWARD_QSO_WINDOW = True                  # activa el sondeo del QSO window
-QSO_POLL_SECONDS   = 2.0                   # intervalo de sondeo
-QSO_ID_CACHE_SIZE = 2000                   # cuántos IDs recordamos para no duplicar
+LEVEL                      = "INFO"                                  # Logging level, it can be: WARNING, CRITICAL, INFO, DEBUG...
+IGNORE_MESSAGES_FROM_SELF  = True           # Para seguridad: evita bucles reenviando lo que tú mismo transmites
+FORWARD_QSO_WINDOW         = True                  # activa el sondeo del QSO window
+QSO_POLL_SECONDS           = 2.0                   # intervalo de sondeo
+QSO_ID_CACHE_SIZE          = 2000                   # cuántos IDs recordamos para no duplicar
 
 # ======= TELEGRAM
 
-TG_CONNECT_TIMEOUT = 20
-TG_READ_TIMEOUT = 60
-TG_WRITE_TIMEOUT = 60
+TG_CONNECT_TIMEOUT     = 20
+TG_READ_TIMEOUT        = 60
+TG_WRITE_TIMEOUT       = 60
 
 
 # =================================================
