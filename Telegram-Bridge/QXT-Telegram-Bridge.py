@@ -23,8 +23,9 @@ import json
 import logging
 import re
 import config
-from i18n import t
+import math
 
+from i18n import t
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
 from collections import deque
@@ -490,6 +491,62 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
 
 # ---- Helpers: Call Activity → heard -----------------
 
+
+def maidenhead_to_latlon(grid: str):
+    """Convierte un locator Maidenhead (2-10 chars) al centro de la celda (lat, lon)."""
+    if not isinstance(grid, str):
+        return None
+    g = grid.strip()
+    if len(g) < 2:
+        return None
+    g = g.upper()
+    try:
+        # Campo (2 letras)
+        lon = (ord(g[0]) - ord('A')) * 20 - 180
+        lat = (ord(g[1]) - ord('A')) * 10 - 90
+        res_lon, res_lat = 20.0, 10.0
+
+        if len(g) >= 4 and g[2].isdigit() and g[3].isdigit():
+            # Cuadrado (2 dígitos)
+            lon += int(g[2]) * 2
+            lat += int(g[3]) * 1
+            res_lon, res_lat = 2.0, 1.0
+
+        if len(g) >= 6 and g[4].isalpha() and g[5].isalpha():
+            # Subcuadrado (2 letras)
+            lon += (ord(g[4]) - ord('A')) * (2.0 / 24.0)
+            lat += (ord(g[5]) - ord('A')) * (1.0 / 24.0)
+            res_lon, res_lat = 2.0 / 24.0, 1.0 / 24.0  # 5' lon, 2.5' lat
+
+        if len(g) >= 8 and g[6].isdigit() and g[7].isdigit():
+            # Extendido (2 dígitos)
+            lon += int(g[6]) * (res_lon / 10.0)
+            lat += int(g[7]) * (res_lat / 10.0)
+            res_lon /= 10.0
+            res_lat /= 10.0
+
+        # centro de la celda
+        lon += res_lon / 2.0
+        lat += res_lat / 2.0
+        return (lat, lon)
+    except Exception:
+        return None
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    R = 6371.0088
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+    c = 2 * math.asin(min(1, math.sqrt(a)))
+    return R * c
+
+def grid_distance_km(grid1: str, grid2: str):
+    p1 = maidenhead_to_latlon(grid1) if grid1 else None
+    p2 = maidenhead_to_latlon(grid2) if grid2 else None
+    if not p1 or not p2:
+        return None
+    return round(haversine_km(p1[0], p1[1], p2[0], p2[1]))
+
 def _extract_callsign_from_line(line: str) -> Optional[str]:
     if not isinstance(line, str):
         return None
@@ -614,6 +671,60 @@ def update_heard_from_call_activity(value):
                     if isinstance(_v, list):
                         update_heard_from_call_activity(_v)
                         return
+                # 4.b) Mapa de offsets (claves numéricas en 'params'): {"930": {...}, ...}
+                keys = list(value.keys())
+                is_offset_map = keys and all(isinstance(k, str) and (k.isdigit() or k.startswith("_")) for k in keys)
+                if is_offset_map:
+                    for k, d in value.items():
+                        if not isinstance(d, dict):
+                            continue
+                        text = (d.get("TEXT") or "").strip()
+        
+                        # Indicativo en TEXT: "EA1ABC: ..." o "EA1ABC> ..."
+                        m_cs = re.match(r'\s*([A-Z0-9/]{3,})\s*[:>]', text, re.I)
+                        if m_cs:
+                            cs = m_cs.group(1)
+                        else:
+                            cs = next((tok for tok in text.split() if CALLSIGN_RE.match(tok)), None)
+        
+                        # SNR, GRID, FREQ, OFFSET, UTC
+                        def _to_int(x):
+                            try:
+                                return int(x)
+                            except Exception:
+                                try:
+                                    return int(round(float(x)))
+                                except Exception:
+                                    return None
+        
+                        snr  = _to_int(d.get("SNR"))
+                        m_g  = re.search(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', text, re.I)
+                        grid = m_g.group(1).upper() if m_g else None
+                        freq = d.get("FREQ") or d.get("DIAL")
+                        off  = d.get("OFFSET")
+                        utc_ms = d.get("UTC")
+                        utc_ts = None
+                        if isinstance(utc_ms, (int, float)):
+                            # vienen en milisegundos
+                            utc_ts = (utc_ms / 1000.0) if utc_ms > 1e12 else float(utc_ms)
+        
+                        # Guarda en STATE.heard con timestamp de UTC real
+                        if cs:
+                            base = _base_callsign(cs)
+                            now = time.time()
+                            prev = STATE.heard.get(base, {})
+                            entry = {
+                                "callsign": base,
+                                "snr": snr if isinstance(snr, int) else prev.get("snr"),
+                                "grid": grid if isinstance(grid, str) else prev.get("grid"),
+                                "freq": freq if freq is not None else prev.get("freq"),
+                                "offset": off if off is not None else prev.get("offset"),
+                                "utc": utc_ts if utc_ts else prev.get("utc"),
+                                "ts": utc_ts if utc_ts else now,  # ← usa hora real si existe
+                                "text": text or prev.get("text"),
+                            }
+                            STATE.heard[base] = entry
+                    return
 
         # b) mapa CALLSIGN -> dict(info)
         keys = list(value.keys())
@@ -1140,14 +1251,14 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # 1) Límite
+        # Límite
         try:
             limit = int(context.args[0]) if context.args else 20
             limit = max(1, min(limit, 200))
         except Exception:
             limit = 20
 
-        # 2) Snapshot (espera a datos)
+        # Snapshot (espera a datos)
         try:
             if BRIDGE and STATE.js8_connected:
                 timeout = getattr(config, "CALL_ACTIVITY_TIMEOUT", 2.5)
@@ -1156,37 +1267,57 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.debug(f"/stations snapshot error: {e}")
 
-        # 3) Datos en memoria
         total = len(STATE.heard)
         if total == 0:
-            await update.effective_message.reply_text(t("stations_none") if 't' in globals() else "Aún no he oído ninguna estación.")
+            await update.effective_message.reply_text(
+                t("stations_none") if "t" in globals() else "Aún no he oído ninguna estación."
+            )
             return
 
         now = time.time()
+        my_grid = getattr(config, "GRID", None)
+
+        # Ordena por más reciente (por UTC real si existe)
         entries = sorted(
             STATE.heard.values(),
-            key=lambda e: e.get("ts", 0) or 0,
+            key=lambda e: (e.get("ts") or 0),
             reverse=True,
         )
-        topn = min(limit, len(entries))
 
-        def _fmt_line(e: dict) -> str:
-            cs   = e.get("callsign") or ""
-            snr  = e.get("snr")
+        def _age(ts: float) -> str:
+            if not ts:
+                return "—"
+            delta = max(0, int(now - ts))
+            if delta < 3600:
+                return f"{delta//60}m"
+            if delta < 86400:
+                return f"{delta//3600}h"
+            return f"{delta//86400}d"
+
+        lines = []
+        count = 0
+        for e in entries:
+            cs = e.get("callsign") or ""
+            if not CALLSIGN_RE.match(cs):
+                continue  # omite offsets u otras claves que no son indicativos
+            snr = e.get("snr")
             grid = e.get("grid") or ""
-            age_s = max(0, int(now - (e.get("ts") or now)))
-            age = f"{age_s//60}m" if age_s < 3600 else f"{age_s//3600}h"
-            snr_txt = f"SNR {snr:+d}" if isinstance(snr, int) else ""
-            return (t("stations_line", cs=cs, snr_txt=snr_txt, grid=grid, age=age)
-                    if 't' in globals() else f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago")
+            dist = None
+            if my_grid and grid:
+                dist = grid_distance_km(my_grid, grid)
+            dist_txt = f"{dist} km" if isinstance(dist, (int, float)) else "—"
+            snr_txt = f"{snr:+d}" if isinstance(snr, int) else "—"
+            age_txt = _age(e.get("utc") or e.get("ts"))
 
-        lines = [_fmt_line(e) for e in entries[:topn]]
+            # EA1ABC   1234 km   SNR -10   IN80   7m ago
+            lines.append(f"{cs:<9} {dist_txt:<8} SNR {snr_txt:<4} {grid:<6} {age_txt} ago")
+            count += 1
+            if count >= limit:
+                break
 
-        # 4) Cabecera + envío (troceado por si es largo)
-        header = (t("stations_header", n=topn)
-                  if 't' in globals() else f"📋 Recently heard (top {topn}):")
-
-        msg = header + "\n" + "\n".join(lines)
+        header = (t("stations_header", n=count, total=total)
+                  if "t" in globals() else f"📋 Recently heard (top {count} / total {total}):")
+        msg = header + "\n" + "\n".join(lines) if lines else header + "\n—"
         for i in range(0, len(msg), 3500):
             await update.effective_message.reply_text(msg[i:i+3500])
 
@@ -1196,6 +1327,7 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_text("Error mostrando estaciones. Revisa el log.")
         except Exception:
             pass
+
 
 
 
