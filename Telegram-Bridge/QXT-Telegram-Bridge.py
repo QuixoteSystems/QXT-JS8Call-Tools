@@ -454,43 +454,117 @@ def _extract_callsign_from_line(line: str) -> Optional[str]:
     return None
 
 
-def update_heard_from_call_activity(value) -> None:
-    """Normaliza el contenido de RX.CALL_ACTIVITY (texto o lista) y llena STATE.heard."""
-    now = time.time()
+def update_heard_from_call_activity(value):
+    """
+    Normaliza la 'pantalla derecha' (CALL/BAND ACTIVITY) a STATE.heard.
+    Acepta:
+      - list[dict] con claves tipo CALLSIGN/SNR/GRID/FREQ/OFFSET
+      - dict con lista dentro (p.ej. {'stations': [...]})
+      - str multilinea (intentamos extraer indicativo, SNR y grid)
+    """
+    GRID_RE = re.compile(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', re.I)
 
-    # dict contenedor
-    if isinstance(value, dict):
-        if isinstance(value.get("list"), list):
-            for it in value["list"]:
-                update_heard_from_call_activity(it)
-            return
-        if isinstance(value.get("text"), str):
-            update_heard_from_call_activity(value["text"])  # recursivo
-            return
+    def _to_int(x):
+        try:
+            return int(x)
+        except Exception:
+            try:
+                return int(round(float(x)))
+            except Exception:
+                return None
 
-    # lista de objetos o líneas
+    def _push(cs, snr=None, grid=None, freq=None, offset=None):
+        if not isinstance(cs, str):
+            return
+        base = _base_callsign(cs)
+        if not base or not CALLSIGN_RE.match(base):
+            return
+        now = time.time()
+        prev = STATE.heard.get(base, {})
+        entry = {
+            "callsign": base,
+            "snr": snr if isinstance(snr, int) else prev.get("snr"),
+            "grid": grid if isinstance(grid, str) else prev.get("grid"),
+            "freq": freq if freq is not None else prev.get("freq"),
+            "offset": offset if offset is not None else prev.get("offset"),
+            "ts": now,
+        }
+        STATE.heard[base] = entry
+
+    # --- casos por tipo ---
+    if value is None:
+        return
+
+    # list => cada item puede ser dict o str
     if isinstance(value, list):
         for it in value:
-            update_heard_from_call_activity(it)
+            if isinstance(it, dict):
+                cs = it.get("CALLSIGN") or it.get("STATION") or it.get("from") or it.get("CALL") or it.get("call")
+                snr = _to_int(it.get("SNR"))
+                grid = it.get("GRID") or it.get("grid") or it.get("LOC") or it.get("locator")
+                freq = it.get("FREQ") or it.get("freq") or it.get("DIAL") or it.get("dial")
+                off  = it.get("OFFSET") or it.get("offset")
+                _push(cs, snr, grid, freq, off)
+            elif isinstance(it, str):
+                line = it.strip()
+                if not line:
+                    continue
+                # primer token con pinta de indicativo
+                toks = line.split()
+                cs = None
+                for tok in toks:
+                    if CALLSIGN_RE.match(tok):
+                        cs = tok
+                        break
+                if not cs:
+                    continue
+                # SNR si aparece "SNR -10"
+                m_snr = re.search(r'\bSNR\s*([+-]?\d{1,2})\b', line, re.I)
+                snr = _to_int(m_snr.group(1)) if m_snr else None
+                # GRID tipo IN80, IN80aa, etc.
+                m_grid = GRID_RE.search(line)
+                grid = m_grid.group(1).upper() if m_grid else None
+                _push(cs, snr, grid)
         return
 
-    # registro dict por estación
+    # dict => busca una lista dentro
     if isinstance(value, dict):
-        v = value
-        cs = v.get("CALLSIGN") or v.get("CALL") or v.get("from")
-        if isinstance(cs, str):
-            csb = _base_callsign(cs)
-            snr = v.get("SNR") if isinstance(v.get("SNR"), (int, float)) else None
-            grid = v.get("GRID") if isinstance(v.get("GRID"), str) else None
-            STATE.heard[csb] = {
-                "callsign": csb,
-                "snr": int(round(snr)) if isinstance(snr, (int, float)) else None,
-                "grid": grid,
-                "freq": v.get("FREQ"),
-                "offset": v.get("OFFSET"),
-                "ts": now,
-            }
+        for key in ("stations", "STATIONS", "list", "LIST", "items", "ITEMS", "value"):
+            lst = value.get(key)
+            if isinstance(lst, list):
+                update_heard_from_call_activity(lst)
+                return
+        # si no hay lista, intenta tratarlo como un único objeto "estación"
+        cs = value.get("CALLSIGN") or value.get("STATION") or value.get("from") or value.get("CALL") or value.get("call")
+        if cs:
+            snr = _to_int(value.get("SNR"))
+            grid = value.get("GRID") or value.get("grid") or value.get("LOC") or value.get("locator")
+            freq = value.get("FREQ") or value.get("freq") or value.get("DIAL") or value.get("dial")
+            off  = value.get("OFFSET") or value.get("offset")
+            _push(cs, snr, grid, freq, off)
         return
+
+    # str multilinea
+    if isinstance(value, str):
+        for line in value.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            toks = line.split()
+            cs = None
+            for tok in toks:
+                if CALLSIGN_RE.match(tok):
+                    cs = tok
+                    break
+            if not cs:
+                continue
+            m_snr = re.search(r'\bSNR\s*([+-]?\d{1,2})\b', line, re.I)
+            snr = _to_int(m_snr.group(1)) if m_snr else None
+            m_grid = GRID_RE.search(line)
+            grid = m_grid.group(1).upper() if m_grid else None
+            _push(cs, snr, grid)
+        return
+
 
     # texto multilinea del panel derecho
     if isinstance(value, str):
