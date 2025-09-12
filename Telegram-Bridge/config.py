@@ -15,8 +15,8 @@ MY_ALIASES         = [MY_CALLSIGN, "EA2ABC"]                 # Tu indicativo en 
 MONITORED_GROUPS   = ["@QXTNET"]                             # Ejemplo de grupos JS8 que quieres escuchar
 JS8_HOST           = "127.0.0.1"                             # IP de la maquina donde esta corriendo JS8Call
 JS8_PORT           = 2442                                    # Puerto JS8Call API JSON (normalmente 2442)
-TRANSPORT          = "TCP"                                    # Protocolo del Puerto "TCP" (recomendado) o "UDP"
-
+TRANSPORT          = "TCP"                                   # Protocolo del Puerto "TCP" (recomendado) o "UDP"
+LANG               = "es"                                    # Write "en" for English strings
 
 
 
