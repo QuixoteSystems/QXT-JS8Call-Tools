@@ -90,6 +90,78 @@ else:
 
 # -----  JS8 API Utils (JSON line-based) -----
 
+def _to_int_safe(x):
+    try:
+        return int(x)
+    except Exception:
+        try:
+            return int(round(float(x)))
+        except Exception:
+            return None
+
+def update_heard_from_params_calls_map(params: dict) -> int:
+    """
+    Soporta el formato:
+    evt = {
+      "type": "RX.CALL_ACTIVITY",
+      "params": {
+        "30AT120": {"GRID": " JN11", "SNR": -19, "UTC": 1757695538529},
+        "2AE2331": {"GRID": "EM96",  "SNR": -17, "UTC": 1757695674291},
+        ...
+        "_ID": 258397311316
+      },
+      "value": ""
+    }
+    Devuelve cuántas entradas añadió/actualizó.
+    """
+    if not isinstance(params, dict):
+        return 0
+
+    count = 0
+    for cs_key, info in params.items():
+        if not isinstance(cs_key, str):
+            continue
+        if cs_key.startswith("_"):  # p.ej. "_ID"
+            continue
+        if not isinstance(info, dict):
+            continue
+
+        cs = cs_key.strip().upper()
+        # Asegura al menos UNA letra (evita que "995" pase como indicativo)
+        if not re.match(r'^(?=.*[A-Z])[A-Z0-9/]{3,}(?:-\d{1,2})?$', cs):
+            continue
+
+        grid = info.get("GRID") or info.get("grid") or info.get("LOC") or info.get("locator")
+        if isinstance(grid, str):
+            grid = grid.strip().upper() or None
+
+        snr  = _to_int_safe(info.get("SNR"))
+        freq = info.get("FREQ") or info.get("DIAL")
+        off  = info.get("OFFSET")
+
+        utc_ms = info.get("UTC")
+        utc_ts = None
+        if isinstance(utc_ms, (int, float)):
+            utc_ts = (utc_ms / 1000.0) if utc_ms > 1e12 else float(utc_ms)
+
+        base = _base_callsign(cs)
+        now = time.time()
+        prev = STATE.heard.get(base, {})
+        STATE.heard[base] = {
+            "callsign": base,
+            "snr": snr if isinstance(snr, int) else prev.get("snr"),
+            "grid": grid if isinstance(grid, str) else prev.get("grid"),
+            "freq": freq if freq is not None else prev.get("freq"),
+            "offset": off if off is not None else prev.get("offset"),
+            "utc": utc_ts if utc_ts else prev.get("utc"),
+            "ts": utc_ts if utc_ts else now,
+            "text": prev.get("text"),  # aquí no viene TEXT; conservamos si ya había
+        }
+        count += 1
+
+    return count
+
+
 def _dump_json(path: str, obj) -> None:
     try:
         import json as _json
@@ -960,12 +1032,10 @@ class JS8TelegramBridge:
     async def get_heard_snapshot(self, timeout: float = 3.5) -> bool:
         if not self.js8 or not STATE.js8_connected:
             return False
-        # Algunas builds requieren 'params' y 'value' a la vez
         await self.js8.send({"type": "RX.GET_CALL_ACTIVITY", "params": {}, "value": ""})
         await asyncio.sleep(0)
         await self.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}, "value": ""})
     
-        # Espera activa a que STATE.heard tenga algo
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if STATE.heard:
@@ -1103,47 +1173,38 @@ class JS8TelegramBridge:
         if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
             try:
                 val = evt.get("value")
+                # dump para depuración (opcional)
                 _dump_json("/tmp/js8_call_activity_evt_last.json", evt)
-                logger.debug(f"CALL_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val)}")
-                
-                # 1) intenta con 'value'
+                # Primero intenta con 'value' (por compatibilidad)
                 update_heard_from_call_activity(val)
-                
-                # 2) y también con 'params' (tu caso: mapa de offsets)
+                # Y AHORA el caso real tuyo: mapa de indicativos en 'params'
                 params = evt.get("params")
                 if isinstance(params, dict):
-                    update_heard_from_call_activity(params)
-                
-                logger.debug(f"CALL_ACTIVITY recibido: heard={len(STATE.heard)}")
-                self._notify_waiters("RX.CALL_ACTIVITY", val)
-                return
-
-
+                    added = update_heard_from_params_calls_map(params)
+                    logger.debug(f"CALL_ACTIVITY (params map) +{added}, total={len(STATE.heard)}")
             except Exception as ex:
                 logger.debug(f"CALL_ACTIVITY parse error: {ex}")
+            finally:
+                self._notify_waiters("RX.CALL_ACTIVITY", evt.get("value"))
             return
+
 
         # ====== 3) RX.BAND_ACTIVITY → heard list (fallback) ======
         if isinstance(evt, dict) and evt.get("type") == "RX.BAND_ACTIVITY":
             try:
                 val = evt.get("value")
                 _dump_json("/tmp/js8_band_activity_evt_last.json", evt)
-                logger.debug(f"BAND_ACTIVITY raw type={type(val).__name__} preview={_safe_preview(val)}")
-                
                 update_heard_from_call_activity(val)
-                
                 params = evt.get("params")
                 if isinstance(params, dict):
-                    update_heard_from_call_activity(params)
-                
-                logger.debug(f"BAND_ACTIVITY recibido: heard={len(STATE.heard)}")
-                self._notify_waiters("RX.BAND_ACTIVITY", val)
-                return
-
-
+                    added = update_heard_from_params_calls_map(params)
+                    logger.debug(f"BAND_ACTIVITY (params map) +{added}, total={len(STATE.heard)}")
             except Exception as ex:
                 logger.debug(f"BAND_ACTIVITY parse error: {ex}")
-            return
+            finally:
+                self._notify_waiters("RX.BAND_ACTIVITY", evt.get("value"))
+    return
+
 
         # ====== 4) RX.SPOT → heard list (/estaciones) ======
         if isinstance(evt, dict) and evt.get("type") == "RX.SPOT":
