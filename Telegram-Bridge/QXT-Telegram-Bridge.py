@@ -909,7 +909,7 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Fuerza un refresco de la Call Activity del panel derecho y, como fallback, la Band Activity
     try:
         if BRIDGE.js8 and STATE.js8_connected:
-            await BRIDGE.js8.send("params":{},"type":"RX.GET_CALL_ACTIVITY","value":""})
+            await BRIDGE.js8.send({"params":{},"type":"RX.GET_CALL_ACTIVITY","value":""})
             await asyncio.sleep(1.5)
             await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "value": ""})
             await asyncio.sleep(0.7)
