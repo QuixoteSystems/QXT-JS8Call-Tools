@@ -36,11 +36,44 @@ from telegram.request import HTTPXRequest
 
 # =================================================
 
+import logging
+import config
+
+# =========== LOGGING ========================
+
+def _resolve_log_level():
+    lv = getattr(config, "LEVEL", "INFO")
+    # si ya viene numérico
+    if isinstance(lv, int):
+        return lv
+    # si viene como texto o número en string
+    if isinstance(lv, str):
+        s = lv.strip().upper()
+        if s.isdigit():
+            return int(s)
+        # Acepta: CRITICAL, ERROR, WARNING, INFO, DEBUG, NOTSET
+        level = getattr(logging, s, None)
+        if isinstance(level, int):
+            return level
+    # fallback
+    return logging.INFO
+
+LOG_LEVEL = _resolve_log_level()
+
 logger = logging.getLogger("js8_telegram_bridge")
 logging.basicConfig(
-    level=logging.INFO,
+    level=LOG_LEVEL,
     format="[%(asctime)s] %(levelname)s: %(message)s",
+    force=True,  # reconfigura aunque basicConfig ya se hubiese llamado
 )
+logger.setLevel(LOG_LEVEL)  # opcional; útil si cambias niveles por logger
+
+# ===============================================
+
+# Silencia httpx/httpcore salvo que estés en DEBUG
+for name in ("httpx", "httpcore"):
+    logging.getLogger(name).setLevel(logging.DEBUG if LOG_LEVEL <= logging.DEBUG else logging.WARNING)
+
 
 # Silenciar verbosidad de httpx/httpcore en INFO:
 NOISY_LIBS = ("httpx", "httpcore")
