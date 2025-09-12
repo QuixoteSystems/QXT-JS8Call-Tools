@@ -678,14 +678,44 @@ async def poll_call_activity_loop():
 class JS8TelegramBridge:
     def __init__(self):
         self.js8 = None  # JS8ClientTCP | JS8ClientUDP
+      self._waiters: dict[str, list[asyncio.Future]] = {}
 
     async def start_js8(self):
         if config.TRANSPORT.upper() == "TCP":
-            self.js8 = JS8ClientTCP(config.JS8_HOST, config.JS8_PORT, self.on_js8_event)
+            self.js8 = JS8ClientTCP(config.JS8_HOST, config.JS8_PORT, self.)
             await self.js8.connect()
         else:
-            self.js8 = JS8ClientUDP(config.JS8_HOST, config.JS8_PORT, self.on_js8_event)
+            self.js8 = JS8ClientUDP(config.JS8_HOST, config.JS8_PORT, self.)
             await self.js8.connect()
+
+    def _notify_waiters(self, event_type: str, value):
+        lst = self._waiters.pop(event_type, [])
+        for fut in lst:
+            if not fut.done():
+                fut.set_result(value)
+
+
+    async def get_heard_snapshot(self, timeout: float = 2.5) -> bool:
+        """Envía GET de Call/Band Activity y espera a la primera respuesta."""
+        if not self.js8 or not STATE.js8_connected:
+            return False
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+        # registrar el futuro para cualquiera de las dos respuestas
+        self._waiters.setdefault("RX.CALL_ACTIVITY", []).append(fut)
+        self._waiters.setdefault("RX.BAND_ACTIVITY", []).append(fut)
+        try:
+            await self.js8.send({"type": "RX.GET_CALL_ACTIVITY", "params": {}})
+            await asyncio.sleep(0)  # ceder control
+            await self.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}})
+            await asyncio.wait_for(fut, timeout)
+            return True
+        except asyncio.TimeoutError:
+            # limpieza si no llegó nada
+            for k in ("RX.CALL_ACTIVITY", "RX.BAND_ACTIVITY"):
+                if k in self._waiters:
+                    self._waiters[k] = [x for x in self._waiters[k] if x is not fut]
+            return False
 
 
     async def on_js8_event(self, evt: dict):
@@ -819,6 +849,8 @@ class JS8TelegramBridge:
                 val = evt.get("value")
                 update_heard_from_call_activity(val)
                 logger.debug(f"CALL_ACTIVITY recibido: heard={len(STATE.heard)}")
+                self._notify_waiters("RX.CALL_ACTIVITY", val)
+                return
             except Exception as ex:
                 logger.debug(f"CALL_ACTIVITY parse error: {ex}")
             return
@@ -829,6 +861,8 @@ class JS8TelegramBridge:
                 val = evt.get("value")
                 update_heard_from_call_activity(val)
                 logger.debug(f"BAND_ACTIVITY recibido: heard={len(STATE.heard)}")
+                self._notify_waiters("RX.BAND_ACTIVITY", val)
+                return
             except Exception as ex:
                 logger.debug(f"BAND_ACTIVITY parse error: {ex}")
             return
@@ -941,11 +975,10 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Fuerza un refresco de la Call Activity del panel derecho y, como fallback, la Band Activity
     try:
-        if BRIDGE.js8 and STATE.js8_connected:
-            await BRIDGE.js8.send({"type":"RX.GET_CALL_ACTIVITY", "params":{}})
-            await asyncio.sleep(1.5)
-            await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}})
-            await asyncio.sleep(0.7)
+        if BRIDGE and STATE.js8_connected:
+            timeout = getattr(config, "CALL_ACTIVITY_TIMEOUT", 2.5)
+            ok = await BRIDGE.get_heard_snapshot(timeout)
+            logger.debug(f"/stations snapshot ok={ok}, heard={len(STATE.heard)}")
     except Exception as e:
         logger.debug(f"No se pudo pedir CALL/BAND_ACTIVITY: {e}")
 
@@ -1037,8 +1070,25 @@ async def cmd_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.effective_message.reply_text(t("err_sending", who=last, err=e))
 
+async def cmd_rescan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await restricted_chat(update):
+        return
+    try:
+        if BRIDGE and STATE.js8_connected:
+            timeout = getattr(config, "CALL_ACTIVITY_TIMEOUT", 2.5)
+            ok = await BRIDGE.get_heard_snapshot(timeout)
+            logger.debug(f"/rescan -> ok={ok}, heard={len(STATE.heard)}")
+        else:
+            logger.debug("/rescan: JS8 no conectado")
+    except Exception as e:
+        logger.debug(f"/rescan error: {e}")
+    await update.effective_message.reply_text(
+        f"Heard en memoria: {len(STATE.heard)} estaciones."
+    )
 
-# (Opcional) también permitir mensajes de texto “libres” como /last:
+# =================== END Telegram Commands ======================
+
+# (Optional) allow free text messages  /last:
 async def plain_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await restricted_chat(update):
         return
