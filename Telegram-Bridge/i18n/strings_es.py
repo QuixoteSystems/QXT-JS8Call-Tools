@@ -27,7 +27,7 @@ STRINGS = {
     # Stations
     "stations_none": "Aún no he oído ninguna estación.",
     "stations_header": "📋 Oidas Recientemente (top {n}):",
-    "stations_line": "{cs:<10} {snr_txt:<8} {grid:<6} hace {age}",
+    "stations_line": "{cs:<12} {snr_txt:<10} {grid:<6} hace {age}",
 
     # Heartbeat
     "hb_sent": "🔴 Heartbeat Enviado:\n @HB {text}",
