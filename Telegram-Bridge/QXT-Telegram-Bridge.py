@@ -616,7 +616,7 @@ async def poll_qso_text_loop():
         try:
             if config.FORWARD_QSO_WINDOW and STATE.js8_connected and BRIDGE.js8:
                 # Pide el texto del QSO window
-                await BRIDGE.js8.send({"params":{},"type": "RX.GET_TEXT", "value": ""})
+                await BRIDGE.js8.send({"type": "RX.GET_TEXT", "params":{}})
         except Exception as e:
             logger.error(f"QSO poll error: {e}")
         await asyncio.sleep(config.QSO_POLL_SECONDS)
@@ -632,10 +632,10 @@ async def poll_call_activity_loop():
         try:
             if STATE.js8_connected and BRIDGE and BRIDGE.js8:
                 # Solicita la lista de estaciones oídas
-                await BRIDGE.js8.send({"params":{},"type":"RX.GET_CALL_ACTIVITY","value":""})
+                await BRIDGE.js8.send({"type":"RX.GET_CALL_ACTIVITY","params":{}})
                 await asyncio.sleep(0.8)
                 # Como respaldo pide la actividad de banda (algunas versiones responden aquí)
-                await BRIDGE.js8.send({"params":{},"type": "RX.GET_BAND_ACTIVITY", "value": ""})
+                await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params":{}})
         except Exception as e:
             logger.debug(f"poll_call_activity_loop: {e}")
         await asyncio.sleep(max(5, int(interval)))
@@ -865,9 +865,9 @@ async def cmd_rescan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         if BRIDGE.js8 and STATE.js8_connected:
-            await BRIDGE.js8.send({"type": "RX.GET_CALL_ACTIVITY", "value": "", "params": {}})
+            await BRIDGE.js8.send({"type": "RX.GET_CALL_ACTIVITY", "params": {}})
             await asyncio.sleep(1.2)
-            await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "value": "", "params": {}})
+            await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}})
             await asyncio.sleep(0.6)
     except Exception as e:
         logger.debug(f"rescan error: {e}")
@@ -909,9 +909,9 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Fuerza un refresco de la Call Activity del panel derecho y, como fallback, la Band Activity
     try:
         if BRIDGE.js8 and STATE.js8_connected:
-            await BRIDGE.js8.send({"params":{},"type":"RX.GET_CALL_ACTIVITY","value":""})
+            await BRIDGE.js8.send({"type":"RX.GET_CALL_ACTIVITY", "params":{}})
             await asyncio.sleep(1.5)
-            await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "value": "", "params": {}})
+            await BRIDGE.js8.send({"type": "RX.GET_BAND_ACTIVITY", "params": {}})
             await asyncio.sleep(0.7)
     except Exception as e:
         logger.debug(f"No se pudo pedir CALL/BAND_ACTIVITY: {e}")
