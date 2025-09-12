@@ -1137,18 +1137,17 @@ async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.debug("/stations invoked")
     if not await restricted_chat(update):
-        logger.debug("/stations: chat no autorizado")
         return
 
     try:
-        # ---- 1) Límite solicitado
+        # 1) Límite
         try:
             limit = int(context.args[0]) if context.args else 20
             limit = max(1, min(limit, 200))
         except Exception:
             limit = 20
 
-        # ---- 2) (Opcional) pedir snapshot y ESPERAR a datos
+        # 2) Snapshot (espera a datos)
         try:
             if BRIDGE and STATE.js8_connected:
                 timeout = getattr(config, "CALL_ACTIVITY_TIMEOUT", 2.5)
@@ -1157,10 +1156,10 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.debug(f"/stations snapshot error: {e}")
 
-        # ---- 3) Construir la lista desde memoria
+        # 3) Datos en memoria
         total = len(STATE.heard)
         if total == 0:
-            await update.effective_message.reply_text("Aún no he oído ninguna estación.")
+            await update.effective_message.reply_text(t("stations_none"))
             return
 
         now = time.time()
@@ -1169,6 +1168,7 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             key=lambda e: e.get("ts", 0) or 0,
             reverse=True,
         )
+        topn = min(limit, len(entries))
 
         def _fmt_line(e: dict) -> str:
             cs   = e.get("callsign") or ""
@@ -1177,24 +1177,31 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             age_s = max(0, int(now - (e.get("ts") or now)))
             age = f"{age_s//60}m" if age_s < 3600 else f"{age_s//3600}h"
             snr_txt = f"SNR {snr:+d}" if isinstance(snr, int) else ""
-            return f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago"
+            # Si usas i18n:
+            try:
+                return t("stations_line", cs=cs, snr_txt=snr_txt, grid=grid, age=age)
+            except Exception:
+                return f"{cs:<10} {snr_txt:<8} {grid:<6} {age} ago"
 
-        lines = [_fmt_line(e) for e in entries[:limit]]
-        header = f"📋 Recently heard (top {min(limit, len(entries))} / total {total}):"
+        lines = [_fmt_line(e) for e in entries[:topn]]
+
+        # 4) Cabecera + envío (troceado)
+        try:
+            header = t("stations_header", n=topn)
+        except Exception:
+            header = f"📋 Recently heard (top {topn}):"
+
         msg = header + "\n" + "\n".join(lines)
-
-        # ---- 4) Troceo por si el usuario pide muchos (límite Telegram ~4096 chars)
-        maxlen = 3500
-        for i in range(0, len(msg), maxlen):
-            await update.effective_message.reply_text(msg[i:i+maxlen])
+        for i in range(0, len(msg), 3500):  # por si es muy largo
+            await update.effective_message.reply_text(msg[i:i+3500])
 
     except Exception as ex:
         logger.error(f"/stations error: {ex}", exc_info=ex)
-        # Respuesta mínima para ver que entró al handler aunque falle el envío formateado
         try:
             await update.effective_message.reply_text("Error mostrando estaciones. Revisa el log.")
         except Exception:
             pass
+
 
 
 
