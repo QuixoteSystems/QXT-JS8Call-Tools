@@ -6,10 +6,10 @@ STRINGS = {
         "🤖 QXT Bridge – comandos:\n"
         "/help – Muestra este mensaje\n"
         "/status – Estado del puente\n"
-        "/to CALLSIGN mensaje – Envía a un indicativo (p. ej. /to EA4ABC Hola)\n"
-        "/group @GRUPO mensaje – Envía a un grupo (p. ej. /group @QXTNET Buenos días)\n"
+        "/to CALLSIGN mensaje – Envía mensaje a indicativo\n"
+        "/group @GRUPO mensaje – Envía mensaje a Grupo\n"
         "/last mensaje – Responde al último corresponsal\n"
-        "/stations [N] – Últimas estaciones oídas (panel derecho)\n"
+        "/stations [N] – Últimas estaciones oídas\n"
         "/heartbeat | /hb – Envía Heartbeat a @HB\n"
         "/rescan – Fuerza refresco de estaciones oídas"
     ),
@@ -26,8 +26,8 @@ STRINGS = {
 
     # Stations
     "stations_none": "Aún no he oído ninguna estación.",
-    "stations_header": "📋 Recently heard (top {n}):",
-    "stations_line": "{cs:<10} {snr_txt:<8} {grid:<6} {age} ago",
+    "stations_header": "📋 Oidas Recientemente (top {n}):",
+    "stations_line": "{cs:<10} {snr_txt:<8} {grid:<6} hace {age}",
 
     # Heartbeat
     "hb_sent": "🔴 Heartbeat Enviado:\n @HB {text}",
