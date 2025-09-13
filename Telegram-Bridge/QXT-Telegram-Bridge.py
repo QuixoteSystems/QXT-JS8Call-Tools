@@ -1469,19 +1469,23 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return f"{delta//3600}h"
             return f"{delta//86400}d"
 
+      
         def _derive_callsign(e: dict) -> str | None:
-            cs = e.get("callsign") or ""
-            if CALLSIGN_RE.match(cs):
+            cs = (e.get("callsign") or "").upper()
+            if CALLSIGN_RE.match(cs) and not GRID_FULL_RE.fullmatch(cs):
                 return cs
-            # intenta sacarlo del TEXT original
             txt = (e.get("text") or "").strip()
             m = re.match(r'\s*([A-Z0-9/]{3,})\s*[:>]', txt, re.I)
-            if m and CALLSIGN_RE.match(m.group(1)):
-                return m.group(1).upper()
+            if m:
+                cand = m.group(1).upper()
+                if CALLSIGN_RE.match(cand) and not GRID_FULL_RE.fullmatch(cand):
+                    return cand
             for tok in txt.split():
-                if CALLSIGN_RE.match(tok):
-                    return tok.upper()
+                tok = tok.upper()
+                if CALLSIGN_RE.match(tok) and not GRID_FULL_RE.fullmatch(tok):
+                    return tok
             return None
+
 
         def _derive_grid(e: dict) -> str:
             grid = e.get("grid") or ""
@@ -1508,7 +1512,11 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for e in entries:
             cs = _derive_callsign(e)
             if not cs:
-                continue  # descarta offsets u objetos raros
+                continue
+            # no mostrarme a mí ni tokens tipo grid
+            if is_me(cs) or GRID_FULL_RE.fullmatch(cs):
+                continue
+
             snr = e.get("snr")
             grid = _derive_grid(e)
 
