@@ -1095,7 +1095,7 @@ class JS8TelegramBridge:
                 base = _base_callsign(tok)
                 return any(_base_callsign(a) == base for a in config.MY_ALIASES if isinstance(a, str) and a.strip())
 
-            async def _parse_and_maybe_forward(line: str, source: str) -> bool:
+           async def _parse_and_maybe_forward(line: str, source: str) -> bool:
                 """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
                 m = QSO_FROMTO_RE.match(line)
                 if not m:
@@ -1109,55 +1109,63 @@ class JS8TelegramBridge:
                 # Limpia adornos finales (diamantes) y espacios
                 msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
             
-                # Asegura almacén local por-ID para evitar bloquear mensajes nuevos con el mismo ID
-                if not hasattr(self, "_qso_last_by_id"):
-                    self._qso_last_by_id = {}
-            
-                # 0) ID del QSO (si existe en la línea)
+                # ID del QSO (si existe en la línea)
                 qso_id = extract_qso_msg_id(line)
             
-                # 🚫 No reenviar "trailing-immediate" si aún no hay cuerpo (solo FROM→TO)
+                # No reenviar trailing "inmediato" si aún no hay cuerpo (solo FROM→TO)
                 if source == "trailing-immediate" and not msg_clean:
                     return False
             
-                # (Recomendado) No reenviar nunca si no hay cuerpo
+                # No reenviar nunca si no hay cuerpo
                 if not msg_clean:
                     return False
             
-                # 1) Si tenemos QSO-ID, deduplicar por (ID + contenido)
+                # Memoria local por-ID para deduplicar (ID + contenido)
+                if not hasattr(self, "_qso_last_by_id"):
+                    self._qso_last_by_id = {}
                 if qso_id:
                     prev = self._qso_last_by_id.get(qso_id)
                     if prev and prev == msg_clean:
                         return False  # mismo contenido ya enviado para este ID
             
-                # 2) No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
+                # No reenviar si el remitente soy yo (comparación estricta base-callsign)
                 if _is_me_strict(from_cs):
                     return False
             
-                # 3) Solo si el DESTINO soy yo o uno de mis grupos (usa helper robusto)
-                if not to_is_me_or_monitored_group(to_tok):
-                    return False
+                # Solo si el destino soy yo o uno de mis grupos (usa los sets del closure)
+                if to_tok.startswith("@"):
+                    if _norm_group(to_tok) not in allowed_groups:
+                        return False
+                else:
+                    if _base_callsign(to_tok) not in allowed_calls:
+                        return False
             
-                # 4) Anti-eco: si coincide con lo que ACABO de transmitir (mismo TO + mismo cuerpo limpio), ignora
+                # Anti-eco: si coincide con lo que acabo de transmitir (mismo TO + mismo cuerpo limpio), ignora
                 try:
                     if was_recently_sent(to_tok, msg_clean):
                         return False
                 except NameError:
                     pass
             
-                # 5) Evita duplicado inmediato literal
+                # Evita duplicado inmediato literal
                 if line == self._qso_last_forwarded:
                     return False
             
-                # ✅ Reenvía
+                # ✅ Reenvía (con fallback si falta la clave i18n)
                 self._qso_last_forwarded = line
-                await send_to_telegram(t("rx_qso_line", line=line))
+                try:
+                    await send_to_telegram(t("rx_qso_line", line=line))
+                except Exception:
+                    await send_to_telegram(f"🟢 Mensaje Recibido:\n{line}")
             
-                # 6) Actualiza memoria por-ID con el contenido que acabamos de reenviar
+                # Actualiza memoria por-ID y marca reenviado SOLO si la línea ya es estable
                 if qso_id:
                     self._qso_last_by_id[qso_id] = msg_clean
+                    if source in ("stable", "trailing-stable"):
+                        remember_forwarded_id(qso_id)
             
                 return True
+
 
 
 
