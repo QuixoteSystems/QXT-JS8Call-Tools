@@ -385,8 +385,11 @@ def _norm_group(s: str) -> str:
 
 def is_me(callsign: str) -> bool:
     base = _base_callsign(callsign)
-    all_my = _as_list(getattr(config, "MY_CALLSIGN", [])) + _as_list(getattr(config, "MY_ALIASES", []))
-    return any(isinstance(x, str) and _base_callsign(x) == base for x in all_my)
+    pool = _as_list(getattr(config, "MY_CALLSIGN", [])) + _as_list(getattr(config, "MY_ALIASES", []))
+    return any(
+        isinstance(x, str) and x.strip() and _base_callsign(x) == base
+        for x in pool
+    )
 
 def to_is_me_or_monitored_group(to: str) -> bool:
     if not isinstance(to, str):
@@ -1187,60 +1190,56 @@ class JS8TelegramBridge:
                 msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
     
                 # ID del QSO (si existe en la línea)
+                # ...
                 qso_id = extract_qso_msg_id(line)
-    
-                # ¿Llega el símbolo de fin?
                 has_end = bool(END_OF_MSG_RE.search(raw_msg))
-    
-                # Si no ha llegado el símbolo de fin, no reenviar aún.
+                
                 if not has_end:
                     if qso_id:
                         if not hasattr(self, "_qso_partial_by_id"):
                             self._qso_partial_by_id = {}
                         self._qso_partial_by_id[qso_id] = line
                     return False
-    
-                # No reenviar si no hay cuerpo (después de limpiar adornos)
+                
+                # cuerpo limpio obligatorio
                 if not msg_clean:
                     return False
-    
-                # Deduplicación por ID ya reenviado (solo cuando el mensaje está completo)
+                
+                # ⬇️ PRIMERO dedupe por ID (no lo marques aún)
                 if qso_id and was_id_forwarded(qso_id):
                     return False
-    
-                # No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
+                
+                # no eco propio
                 if _is_me_strict(from_cs):
                     return False
-    
-                # Solo si el DESTINO soy yo o uno de mis grupos
+                
+                # destino debe ser yo o grupo vigilado
                 if not to_is_me_or_monitored_group(to_tok):
                     return False
-    
-                # Anti-eco: si coincide con lo que acabo de transmitir (mismo TO + mismo cuerpo limpio), ignora
+                
+                # anti-eco (mismo TO + mismo cuerpo)
                 try:
                     if was_recently_sent(to_tok, msg_clean):
                         return False
                 except NameError:
                     pass
-    
-                # Evita duplicado inmediato literal
+                
+                # evita duplicado literal inmediato
                 if line == self._qso_last_forwarded:
                     return False
-    
-                # ✅ Reenvía (mensaje completo con símbolo de fin)
+                
+                # ✅ reenviar
                 self._qso_last_forwarded = line
-                try:
-                    await send_to_telegram(t("rx_qso_line", line=line))
-                except Exception:
-                    await send_to_telegram(f"🟢 Mensaje Recibido:\n{line}")
-    
-                # Marca el ID como reenviado SOLO cuando ya está completo
+                await send_to_telegram(t("rx_qso_line", line=line))
+                
+                # ⬇️ AHORA sí: marca el ID como reenviado y limpia parcial
                 if qso_id:
                     remember_forwarded_id(qso_id)
                     if hasattr(self, "_qso_partial_by_id"):
                         self._qso_partial_by_id.pop(qso_id, None)
-    
+                
                 return True
+
     
             # ---- 1.a) Procesa SOLO las líneas nuevas completas ----
             for raw in tail_lines:
