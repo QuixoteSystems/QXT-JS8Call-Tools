@@ -137,7 +137,7 @@ def update_heard_from_params_calls_map(params: dict) -> int:
 
         cs = cs_key.strip().upper()
         # Asegura al menos UNA letra (evita que "995" pase como indicativo)
-        if not re.match(r'^(?=.*[A-Z])[A-Z0-9/]{3,}(?:-\d{1,2})?$', cs):
+        if not CALLSIGN_RE.match(cs):
             continue
 
         grid = info.get("GRID") or info.get("grid") or info.get("LOC") or info.get("locator")
@@ -369,7 +369,9 @@ def extract_from_to_text(evt: dict) -> Optional[tuple[str, str, str]]:
 
     return None
 
-CALLSIGN_RE = re.compile(r'^(?=.*[A-Z])[A-Z0-9/]{3,}(?:-\d{1,2})?$', re.I)
+
+CALLSIGN_RE = re.compile(r'^(?=.*[A-Z])(?=.*\d)[A-Z0-9/]{3,}(?:-\d{1,2})?$', re.I)
+
 
 def _base_callsign(s: str) -> str:
     return (s or "").strip().split()[0].split("-")[0].upper()
