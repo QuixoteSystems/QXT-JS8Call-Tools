@@ -1413,7 +1413,9 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 line = line_tpl.format(**line_kwargs)
             except Exception:
                 # Fallback por si la plantilla no cuadra
-                line = f"🗼 {cs:<10.10} {line_kwargs['dist']:<10.10} SNR:{line_kwargs['snr']:<4} GRID:{line_kwargs['grid']:<6} {line_kwargs['age']} ago"
+                #line = f"🗼 {cs:<10.10} {line_kwargs['dist']:<10.10} SNR:{line_kwargs['snr']:<4} GRID:{line_kwargs['grid']:<6} {line_kwargs['age']} ago"
+                # NO GRID info
+                line = f"🗼 {cs:<10.10} {line_kwargs['dist']:<10.10} SNR:{line_kwargs['snr']:<4} {line_kwargs['age']} ago"
 
             lines.append(line)
             count += 1
