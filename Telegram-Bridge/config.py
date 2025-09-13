@@ -9,7 +9,7 @@ Archivo de configuracion donde poner tus parametros y datos
 
 TELEGRAM_BOT_TOKEN = "111111111111111111111111111111111"     # Puedes obtenerlo el token de tu bot (desde @BotFather).
 TELEGRAM_CHAT_ID   = 1065228100                              # Reemplaza por tu chat ID (int) el chat ID donde quieres recibir/enviar (p.ej., tu chat privado; puedes obtenerlo hablando >
-MY_CALLSIGN        = "EA1ABC"                                # Tu indicativo en JS8
+MY_CALLSIGN        = ["EA1ABC"]                                # Tu indicativo en JS8
 GRID               = "IMHO"                                  # Tu localizacion del Maidenhead Grid
 MY_ALIASES         = [MY_CALLSIGN, "EA2ABC"]                 # Tu indicativo en JS8, si usas mas de uno
 MONITORED_GROUPS   = ["@QXTNET"]                             # Ejemplo de grupos JS8 que quieres escuchar
