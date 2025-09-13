@@ -1106,8 +1106,12 @@ class JS8TelegramBridge:
                 to_tok  = (to_tok  or "").strip()
                 raw_msg = (msg     or "")
             
-                # Limpia adornos y espacios; nos sirve para decidir si hay cuerpo de verdad
+                # Limpia adornos finales (diamantes) y espacios
                 msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
+            
+                # Asegura almacén local por-ID para evitar bloquear mensajes nuevos con el mismo ID
+                if not hasattr(self, "_qso_last_by_id"):
+                    self._qso_last_by_id = {}
             
                 # 0) ID del QSO (si existe en la línea)
                 qso_id = extract_qso_msg_id(line)
@@ -1116,25 +1120,23 @@ class JS8TelegramBridge:
                 if source == "trailing-immediate" and not msg_clean:
                     return False
             
-                # (Opcional pero recomendable) No reenviar nunca si no hay cuerpo
+                # (Recomendado) No reenviar nunca si no hay cuerpo
                 if not msg_clean:
                     return False
             
-                # 1) Deduplicación por ID (si ya fue reenviado una vez)
-                if qso_id and was_id_forwarded(qso_id):
-                    return False
+                # 1) Si tenemos QSO-ID, deduplicar por (ID + contenido)
+                if qso_id:
+                    prev = self._qso_last_by_id.get(qso_id)
+                    if prev and prev == msg_clean:
+                        return False  # mismo contenido ya enviado para este ID
             
                 # 2) No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
                 if _is_me_strict(from_cs):
                     return False
             
-                # 3) Solo si el DESTINO soy yo (alias/base) o uno de mis grupos
-                if to_tok.startswith("@"):
-                    if _norm_group(to_tok) not in allowed_groups:
-                        return False
-                else:
-                    if _base_callsign(to_tok) not in allowed_calls:
-                        return False
+                # 3) Solo si el DESTINO soy yo o uno de mis grupos (usa helper robusto)
+                if not to_is_me_or_monitored_group(to_tok):
+                    return False
             
                 # 4) Anti-eco: si coincide con lo que ACABO de transmitir (mismo TO + mismo cuerpo limpio), ignora
                 try:
@@ -1151,9 +1153,9 @@ class JS8TelegramBridge:
                 self._qso_last_forwarded = line
                 await send_to_telegram(t("rx_qso_line", line=line))
             
-                # 6) 🧠 Recuerda el ID SOLO cuando la línea ya está completa/estable
-                if qso_id and source in ("stable", "trailing-stable"):
-                    remember_forwarded_id(qso_id)
+                # 6) Actualiza memoria por-ID con el contenido que acabamos de reenviar
+                if qso_id:
+                    self._qso_last_by_id[qso_id] = msg_clean
             
                 return True
 
