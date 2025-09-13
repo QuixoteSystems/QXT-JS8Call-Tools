@@ -1100,143 +1100,62 @@ class JS8TelegramBridge:
                 m = QSO_FROMTO_RE.match(line)
                 if not m:
                     return False
-
+            
                 from_tok, to_tok, msg = m.groups()
                 from_cs = (from_tok or "").strip().upper()
                 to_tok  = (to_tok  or "").strip()
-                msg     = (msg     or "").strip()
-
-                # 0) Deduplicación por ID del QSO (si existe)
+                raw_msg = (msg     or "")
+            
+                # Limpia adornos y espacios; nos sirve para decidir si hay cuerpo de verdad
+                msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
+            
+                # 0) ID del QSO (si existe en la línea)
                 qso_id = extract_qso_msg_id(line)
+            
+                # 🚫 No reenviar "trailing-immediate" si aún no hay cuerpo (solo FROM→TO)
+                if source == "trailing-immediate" and not msg_clean:
+                    return False
+            
+                # (Opcional pero recomendable) No reenviar nunca si no hay cuerpo
+                if not msg_clean:
+                    return False
+            
+                # 1) Deduplicación por ID (si ya fue reenviado una vez)
                 if qso_id and was_id_forwarded(qso_id):
                     return False
-
-                # 1) No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
+            
+                # 2) No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
                 if _is_me_strict(from_cs):
                     return False
-                  
-                # 2) Solo si el DESTINO soy yo (alias/base) o uno de mis grupos
+            
+                # 3) Solo si el DESTINO soy yo (alias/base) o uno de mis grupos
                 if to_tok.startswith("@"):
                     if _norm_group(to_tok) not in allowed_groups:
                         return False
                 else:
                     if _base_callsign(to_tok) not in allowed_calls:
                         return False
-
-                # 3) Anti-eco: si coincide con lo que ACABO de transmitir (mismo TO + mismo cuerpo), ignora
+            
+                # 4) Anti-eco: si coincide con lo que ACABO de transmitir (mismo TO + mismo cuerpo limpio), ignora
                 try:
-                    if was_recently_sent(to_tok, msg):
+                    if was_recently_sent(to_tok, msg_clean):
                         return False
                 except NameError:
                     pass
-
-                # 4) Evita duplicado inmediato (por seguridad extra)
+            
+                # 5) Evita duplicado inmediato literal
                 if line == self._qso_last_forwarded:
                     return False
-
-                # 5) Reenvia y recuerda ID (si hay)
+            
+                # ✅ Reenvía
                 self._qso_last_forwarded = line
                 await send_to_telegram(t("rx_qso_line", line=line))
-                if qso_id:
+            
+                # 6) 🧠 Recuerda el ID SOLO cuando la línea ya está completa/estable
+                if qso_id and source in ("stable", "trailing-stable"):
                     remember_forwarded_id(qso_id)
+            
                 return True
-
-            # 1.a) Procesa SOLO las lineas nuevas completas
-            for raw in tail_lines:
-                line = raw.strip()
-                if not line:
-                    continue
-                await _parse_and_maybe_forward(line, "stable")
-
-            # 1.b) Linea final sin '\n': si ya esta completa (FROM→TO), enviala UNA VEZ cuando se estabilice
-            if trailing:
-                now = time.time()
-                poll = globals().get("config.QSO_POLL_SECONDS", 2.0)
-                if QSO_FROMTO_RE.match(trailing) and trailing != self._qso_last_forwarded:
-                    await _parse_and_maybe_forward(trailing, "trailing-immediate")
-                if trailing == self._qso_pending_text:
-                    if now - self._qso_pending_since >= max(0.8 * poll, 1.0):
-                        if trailing != self._qso_last_forwarded:
-                            await _parse_and_maybe_forward(trailing, "trailing-stable")
-                        self._qso_pending_text = ""
-                        self._qso_pending_since = 0.0
-                else:
-                    self._qso_pending_text = trailing
-                    self._qso_pending_since = now
-            else:
-                self._qso_pending_text = ""
-                self._qso_pending_since = 0.0
-
-            return  # no procesar RX.TEXT en otras ramas!
-
-        # ====== 2) RX.CALL_ACTIVITY → heard list ======
-        if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
-            try:
-                val = evt.get("value")
-                # dump para depuración (opcional)
-                _dump_json("/tmp/js8_call_activity_evt_last.json", evt)
-                # Primero intenta con 'value' (por compatibilidad)
-                update_heard_from_call_activity(val)
-                # Y AHORA el caso real tuyo: mapa de indicativos en 'params'
-                params = evt.get("params")
-                if isinstance(params, dict):
-                    added = update_heard_from_params_calls_map(params)
-                    logger.debug(f"CALL_ACTIVITY (params map) +{added}, total={len(STATE.heard)}")
-            except Exception as ex:
-                logger.debug(f"CALL_ACTIVITY parse error: {ex}")
-            finally:
-                self._notify_waiters("RX.CALL_ACTIVITY", evt.get("value"))
-            return
-
-
-        # ====== 3) RX.BAND_ACTIVITY → heard list (fallback) ======
-        if isinstance(evt, dict) and evt.get("type") == "RX.BAND_ACTIVITY":
-            try:
-                val = evt.get("value")
-                _dump_json("/tmp/js8_band_activity_evt_last.json", evt)
-                update_heard_from_call_activity(val)
-                params = evt.get("params")
-                if isinstance(params, dict):
-                    added = update_heard_from_params_calls_map(params)
-                    logger.debug(f"BAND_ACTIVITY (params map) +{added}, total={len(STATE.heard)}")
-            except Exception as ex:
-                logger.debug(f"BAND_ACTIVITY parse error: {ex}")
-            finally:
-                self._notify_waiters("RX.BAND_ACTIVITY", evt.get("value"))
-            return
-
-        # ====== 4) RX.SPOT → heard list (/estaciones) ======
-        if isinstance(evt, dict) and evt.get("type") == "RX.SPOT":
-            try:
-                spot = parse_rx_spot(evt)
-                if spot and isinstance(spot.get("callsign"), str):
-                    STATE.heard[spot["callsign"]] = spot
-                    logger.debug(f"RX.SPOT: +{spot['callsign']} snr={spot.get('snr')} grid={spot.get('grid')}")
-            except Exception as ex:
-                    logger.debug(f"RX.SPOT parse error: {ex}")
-            return
-
-        # ====== 3) Reenvio generico (otros eventos dirigidos) ======
-        try:
-            triplet = extract_from_to_text(evt)
-        except Exception:
-            triplet = None
-        if not triplet:
-            return
-
-        frm, to, txt = triplet
-        basef = _base_callsign(frm)
-        if any(_base_callsign(a) == basef for a in config.MY_ALIASES):
-            return
-        if not to_is_me_or_monitored_group(to):
-            return
-        try:
-            if was_recently_sent(to, txt):
-                return
-        except NameError:
-            pass
-
-        await send_to_telegram(t("rx_generic", frm=frm, to=to, txt=txt))
 
 
 
