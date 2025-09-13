@@ -575,6 +575,67 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
 # ---- Helpers: Call Activity → heard -----------------
 
 
+def update_heard_from_params_offsets_map(params: dict) -> int:
+    """
+    params = {
+      "930": {"DIAL":..., "FREQ":..., "OFFSET":..., "SNR":..., "TEXT":"EA1ABC: ...", "UTC": ...},
+      "950": {...},
+      "_ID": ...
+    }
+    Devuelve cuántas entradas añadió/actualizó.
+    """
+    if not isinstance(params, dict):
+        return 0
+
+    GRID_RE = re.compile(r'\b([A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?)\b', re.I)
+    count = 0
+
+    for k, d in params.items():
+        if not isinstance(k, str) or k.startswith("_"):
+            continue
+        if not isinstance(d, dict):
+            continue
+
+        text = (d.get("TEXT") or "").strip()
+
+        # Indicativo en TEXT: "EA1ABC: ..." o "EA1ABC> ..."
+        m_cs = re.match(r'\s*([A-Z0-9/]{3,})\s*[:>]', text, re.I)
+        if m_cs and CALLSIGN_RE.match(m_cs.group(1)):
+            cs = m_cs.group(1).upper()
+        else:
+            cs = next((tok.upper() for tok in text.split() if CALLSIGN_RE.match(tok)), None)
+        if not cs:
+            continue
+
+        snr  = _to_int_safe(d.get("SNR"))
+        m_g  = GRID_RE.search(text)
+        grid = m_g.group(1).upper() if m_g else None
+        freq = d.get("FREQ") or d.get("DIAL")
+        off  = d.get("OFFSET")
+
+        utc_ms = d.get("UTC")
+        utc_ts = None
+        if isinstance(utc_ms, (int, float)):
+            utc_ts = (utc_ms / 1000.0) if utc_ms > 1e12 else float(utc_ms)
+
+        base = _base_callsign(cs)
+        now = time.time()
+        prev = STATE.heard.get(base, {})
+        STATE.heard[base] = {
+            "callsign": base,
+            "snr": snr if isinstance(snr, int) else prev.get("snr"),
+            "grid": grid if isinstance(grid, str) else prev.get("grid"),
+            "freq": freq if freq is not None else prev.get("freq"),
+            "offset": off if off is not None else prev.get("offset"),
+            "utc": utc_ts if utc_ts else prev.get("utc"),
+            "ts": utc_ts if utc_ts else now,
+            "text": text or prev.get("text"),
+        }
+        count += 1
+
+    return count
+
+
 def maidenhead_to_latlon(grid: str):
     """Convierte un locator Maidenhead (2-10 chars) al centro de la celda (lat, lon)."""
     if not isinstance(grid, str):
@@ -712,33 +773,17 @@ def update_heard_from_call_activity(value):
 
     # list
     if isinstance(value, list):
-                # 4.b) Mapa de offsets (claves numéricas en 'params'): {"930": {...}, "950": {...}}
-        #     Cada item suele traer: DIAL/FREQ/OFFSET/SNR/TEXT/UTC
-        keys = list(value.keys())
-        is_offset_map = keys and all(isinstance(k, str) and (k.isdigit() or k.startswith("_")) for k in keys)
-        if is_offset_map:
-            for k, d in value.items():
-                if not isinstance(d, dict):
-                    continue
-                text = (d.get("TEXT") or "").strip()
-                # Indicativo: al inicio de TEXT antes de ':' o '>'
-                m_cs = re.match(r'\s*([A-Z0-9/]{3,})\s*[:>]', text, re.I)
-                if m_cs:
-                    cs = m_cs.group(1)
-                else:
-                    # Fallback: primer token con pinta de indicativo
-                    cs = None
-                    for tok in text.split():
-                        if CALLSIGN_RE.match(tok):
-                            cs = tok
-                            break
-                snr  = _to_int(d.get("SNR"))
-                m_g  = GRID_RE.search(text)
-                grid = m_g.group(1).upper() if m_g else None
-                freq = d.get("FREQ") or d.get("DIAL")
-                off  = d.get("OFFSET")
-                _push(cs, snr, grid, freq, off)
-            return
+        for d in value:
+            if not isinstance(d, dict):
+                continue
+            cs = d.get("CALLSIGN") or d.get("STATION") or d.get("from") or d.get("CALL") or d.get("call")
+            snr = _to_int(d.get("SNR"))
+            grid = d.get("GRID") or d.get("grid") or d.get("LOC") or d.get("locator")
+            freq = d.get("FREQ") or d.get("DIAL")
+            off  = d.get("OFFSET")
+            _push(cs, snr, grid, freq, off)
+        return
+
 
     # dict
     if isinstance(value, dict):
@@ -1060,7 +1105,7 @@ class JS8TelegramBridge:
 
 
     async def on_js8_event(self, evt: dict):
-
+    
         # Patrones: prefijos "HH:MM:SS - (n) -" y formato FROM [:|>] TO MENSAJE
         QSO_FROMTO_RE = re.compile(
             r'^\s*'
@@ -1070,26 +1115,26 @@ class JS8TelegramBridge:
             r'(@?[A-Za-z0-9/+-]{3,})\b\s*'                         # TO
             r'(.*)$'                                               # MENSAJE (puede ser vacío)
         )
-
+    
         # ====== 1) QSO window (RX.TEXT) ======
         if isinstance(evt, dict) and evt.get("type") == "RX.TEXT":
             full_text = evt.get("value") or ""
             if not isinstance(full_text, str):
                 return
-
+    
             # Solo líneas COMPLETAS hasta el último '\n'; guarda aparte la línea en construcción
             last_nl = full_text.rfind('\n')
             stable_text = full_text[: last_nl + 1] if last_nl != -1 else ""
             trailing = full_text[last_nl + 1:] if last_nl != -1 else full_text
             trailing = trailing.strip()
-
+    
             # Buffers para trailing sin '\n' y para duplicados
             if not hasattr(self, "_qso_pending_text"):
                 self._qso_pending_text = ""
                 self._qso_pending_since = 0.0
             if not hasattr(self, "_qso_last_forwarded"):
                 self._qso_last_forwarded = ""
-
+    
             # ===== dif por líneas (procesar SOLO lo nuevo) =====
             old = getattr(STATE, "qso_last_text", "") or ""
             old_lines = old.splitlines(keepends=True)
@@ -1098,97 +1143,188 @@ class JS8TelegramBridge:
             while i < len(old_lines) and i < len(new_lines) and old_lines[i] == new_lines[i]:
                 i += 1
             tail_lines = new_lines[i:]  # ← solo líneas nuevas completas
-
+    
             # Actualiza snapshot DESPUÉS de calcular el tail
             STATE.qso_last_text = stable_text
-
+    
             my_aliases = _as_list(getattr(config, "MY_ALIASES", []))
             my_calls   = _as_list(getattr(config, "MY_CALLSIGN", []))
             my_groups  = _as_list(getattr(config, "MONITORED_GROUPS", []))
-            
             allowed_calls  = { _base_callsign(a) for a in (my_aliases + my_calls) if isinstance(a, str) and a.strip() }
             allowed_groups = { _norm_group(g)    for g in my_groups if isinstance(g, str) and _norm_group(g) }
-
+    
             def _is_me_strict(tok: str) -> bool:
                 base = _base_callsign(tok)
                 all_my = my_aliases + my_calls
                 return any(_base_callsign(a) == base for a in all_my if isinstance(a, str) and a.strip())
-
-
+    
             async def _parse_and_maybe_forward(line: str, source: str) -> bool:
                 """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
                 m = QSO_FROMTO_RE.match(line)
                 if not m:
                     return False
-            
+    
                 from_tok, to_tok, msg = m.groups()
                 from_cs = (from_tok or "").strip().upper()
                 to_tok  = (to_tok  or "").strip()
                 raw_msg = (msg     or "")
-            
+    
                 # Limpia adornos finales (solo para anti-eco y vacíos); OJO: el gate de fin usa raw_msg
                 msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
-            
+    
                 # ID del QSO (si existe en la línea)
                 qso_id = extract_qso_msg_id(line)
-            
+    
                 # ¿Llega el símbolo de fin?
                 has_end = bool(END_OF_MSG_RE.search(raw_msg))
-            
+    
                 # Si no ha llegado el símbolo de fin, no reenviar aún.
-                # Si hay QSO-ID, guarda el último fragmento por si quieres inspeccionarlo.
                 if not has_end:
                     if qso_id:
                         if not hasattr(self, "_qso_partial_by_id"):
                             self._qso_partial_by_id = {}
                         self._qso_partial_by_id[qso_id] = line
                     return False
-            
-                # No reenviar nunca si no hay cuerpo (después de limpiar adornos)
+    
+                # No reenviar si no hay cuerpo (después de limpiar adornos)
                 if not msg_clean:
                     return False
-                  
-                if qso_id:
-                    remember_forwarded_id(qso_id)
-                    if hasattr(self, "_qso_partial_by_id"):
-                        self._qso_partial_by_id.pop(qso_id, None)
-        
+    
                 # Deduplicación por ID ya reenviado (solo cuando el mensaje está completo)
                 if qso_id and was_id_forwarded(qso_id):
                     return False
-            
+    
                 # No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
                 if _is_me_strict(from_cs):
                     return False
-            
+    
                 # Solo si el DESTINO soy yo o uno de mis grupos
                 if not to_is_me_or_monitored_group(to_tok):
                     return False
-            
+    
                 # Anti-eco: si coincide con lo que acabo de transmitir (mismo TO + mismo cuerpo limpio), ignora
                 try:
                     if was_recently_sent(to_tok, msg_clean):
                         return False
                 except NameError:
                     pass
-            
+    
                 # Evita duplicado inmediato literal
                 if line == self._qso_last_forwarded:
                     return False
-            
+    
                 # ✅ Reenvía (mensaje completo con símbolo de fin)
                 self._qso_last_forwarded = line
-                await send_to_telegram(t("rx_qso_line", line=line))
-            
+                try:
+                    await send_to_telegram(t("rx_qso_line", line=line))
+                except Exception:
+                    await send_to_telegram(f"🟢 Mensaje Recibido:\n{line}")
+    
                 # Marca el ID como reenviado SOLO cuando ya está completo
                 if qso_id:
                     remember_forwarded_id(qso_id)
-                    # Limpia caché de parcial si la tenías
                     if hasattr(self, "_qso_partial_by_id"):
                         self._qso_partial_by_id.pop(qso_id, None)
-            
+    
                 return True
-
+    
+            # ---- 1.a) Procesa SOLO las líneas nuevas completas ----
+            for raw in tail_lines:
+                line = raw.strip()
+                if not line:
+                    continue
+                await _parse_and_maybe_forward(line, "stable")
+    
+            # ---- 1.b) Línea final sin '\n' ----
+            if trailing:
+                if QSO_FROMTO_RE.match(trailing):
+                    if END_OF_MSG_RE.search(trailing):
+                        # Símbolo de fin presente: envía ya
+                        await _parse_and_maybe_forward(trailing, "trailing-immediate")
+                    else:
+                        # Pendiente hasta que llegue el símbolo
+                        self._qso_pending_text = trailing
+                        self._qso_pending_since = time.time()
+                else:
+                    self._qso_pending_text = ""
+                    self._qso_pending_since = 0.0
+            else:
+                self._qso_pending_text = ""
+                self._qso_pending_since = 0.0
+    
+            return  # fin RX.TEXT
+    
+        # ====== 2) RX.CALL_ACTIVITY → heard list ======
+        if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
+            try:
+                params = evt.get("params")
+                added = 0
+                if isinstance(params, dict):
+                    # Si las claves parecen indicativos → mapa de callsigns
+                    keys = [k for k in params.keys() if isinstance(k, str) and not k.startswith("_")]
+                    if keys and not all(k.isdigit() for k in keys):
+                        added = update_heard_from_params_calls_map(params)
+                    else:
+                        # Algunas builds devuelven offsets aquí
+                        added = update_heard_from_params_offsets_map(params)
+                else:
+                    # Fallback por si viene en 'value'
+                    update_heard_from_call_activity(evt.get("value"))
+                logger.debug(f"CALL_ACTIVITY: +{added}, total={len(STATE.heard)}")
+            except Exception as ex:
+                logger.debug(f"CALL_ACTIVITY parse error: {ex}")
+            finally:
+                return
+    
+        # ====== 3) RX.BAND_ACTIVITY → heard list ======
+        if isinstance(evt, dict) and evt.get("type") == "RX.BAND_ACTIVITY":
+            try:
+                params = evt.get("params")
+                added = 0
+                if isinstance(params, dict):
+                    added = update_heard_from_params_offsets_map(params)
+                else:
+                    update_heard_from_call_activity(evt.get("value"))
+                logger.debug(f"BAND_ACTIVITY: +{added}, total={len(STATE.heard)}")
+            except Exception as ex:
+                logger.debug(f"BAND_ACTIVITY parse error: {ex}")
+            finally:
+                return
+    
+        # ====== 4) RX.SPOT → heard list (opcional) ======
+        if isinstance(evt, dict) and evt.get("type") == "RX.SPOT":
+            try:
+                spot = parse_rx_spot(evt)
+                if spot and isinstance(spot.get("callsign"), str):
+                    STATE.heard[spot["callsign"]] = spot
+                    logger.debug(f"RX.SPOT: +{spot['callsign']} snr={spot.get('snr')} grid={spot.get('grid')}")
+            except Exception as ex:
+                logger.debug(f"RX.SPOT parse error: {ex}")
+            finally:
+                return
+    
+        # ====== 5) Reenvío genérico (otros eventos con FROM/TO/TEXT) ======
+        try:
+            triplet = extract_from_to_text(evt)
+        except Exception:
+            triplet = None
+        if not triplet:
+            return
+    
+        frm, to, txt = triplet
+        basef = _base_callsign(frm)
+        if any(_base_callsign(a) == basef for a in _as_list(getattr(config, "MY_ALIASES", [])) + _as_list(getattr(config, "MY_CALLSIGN", []))):
+            return
+        if not to_is_me_or_monitored_group(to):
+            return
+        try:
+            if was_recently_sent(to, txt):
+                return
+        except NameError:
+            pass
+    
+        await send_to_telegram(t("rx_generic", frm=frm, to=to, txt=txt))
+    
 
 
 
