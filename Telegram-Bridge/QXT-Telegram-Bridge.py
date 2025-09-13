@@ -90,6 +90,14 @@ else:
 
 # -----  JS8 API Utils (JSON line-based) -----
 
+def _as_list(x):
+    if x is None:
+        return []
+    if isinstance(x, (list, tuple, set)):
+        return list(x)
+    return [x]
+
+
 def _to_int_safe(x):
     try:
         return int(x)
@@ -98,6 +106,7 @@ def _to_int_safe(x):
             return int(round(float(x)))
         except Exception:
             return None
+
 
 def update_heard_from_params_calls_map(params: dict) -> int:
     """
@@ -877,8 +886,12 @@ class JS8ClientTCP:
                     raise ConnectionError("Conexión cerrada por JS8Call.")
                 evt = parse_js8_line(line)
                 if evt:
-                    await self.on_event(evt)
-                    continue  # ← importante, ya procesado como JSON
+                    try:
+                        await self.on_event(evt)
+                    except Exception as e:
+                        logger.error(f"on_js8_event error: {e}", exc_info=e)
+                    continue
+
 
                 # Fallback: intenta parsear la línea como texto crudo
                 text_line = line.decode("utf-8", errors="ignore").strip()
@@ -1089,13 +1102,18 @@ class JS8TelegramBridge:
             # Actualiza snapshot DESPUÉS de calcular el tail
             STATE.qso_last_text = stable_text
 
-            # Conjuntos para decidir destino permitido y detectar “yo” (estricto)
-            allowed_calls  = { _base_callsign(a) for a in config.MY_ALIASES if isinstance(a, str) and a.strip() }
-            allowed_groups = { _norm_group(g)    for g in config.MONITORED_GROUPS if _norm_group(g) }
+            my_aliases = _as_list(getattr(config, "MY_ALIASES", []))
+            my_calls   = _as_list(getattr(config, "MY_CALLSIGN", []))
+            my_groups  = _as_list(getattr(config, "MONITORED_GROUPS", []))
+            
+            allowed_calls  = { _base_callsign(a) for a in (my_aliases + my_calls) if isinstance(a, str) and a.strip() }
+            allowed_groups = { _norm_group(g)    for g in my_groups if isinstance(g, str) and _norm_group(g) }
 
-            def _is_me_strict(tok: str) -> bool:
-                base = _base_callsign(tok)
-                return any(_base_callsign(a) == base for a in config.MY_ALIASES if isinstance(a, str) and a.strip())
+def _is_me_strict(tok: str) -> bool:
+    base = _base_callsign(tok)
+    all_my = my_aliases + my_calls
+    return any(_base_callsign(a) == base for a in all_my if isinstance(a, str) and a.strip())
+
 
             async def _parse_and_maybe_forward(line: str, source: str) -> bool:
                 """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
@@ -1129,7 +1147,12 @@ class JS8TelegramBridge:
                 # No reenviar nunca si no hay cuerpo (después de limpiar adornos)
                 if not msg_clean:
                     return False
-            
+                  
+                if qso_id:
+                    remember_forwarded_id(qso_id)
+                    if hasattr(self, "_qso_partial_by_id"):
+                        self._qso_partial_by_id.pop(qso_id, None)
+
                 # Deduplicación por ID ya reenviado (solo cuando el mensaje está completo)
                 if qso_id and was_id_forwarded(qso_id):
                     return False
