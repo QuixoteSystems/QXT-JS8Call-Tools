@@ -1082,18 +1082,24 @@ class JS8TelegramBridge:
             i = 0
             while i < len(old_lines) and i < len(new_lines) and old_lines[i] == new_lines[i]:
                 i += 1
-                tail_lines = new_lines[i:]  # ← solo líneas nuevas completas
-    
-                # Actualiza snapshot DESPUÉS de calcular el tail
-                STATE.qso_last_text = stable_text
-    
-                # Conjuntos para decidir destino permitido y detectar “yo” (estricto)
-                allowed_calls  = { _base_callsign(a) for a in config.MY_ALIASES if isinstance(a, str) and a.strip() }
-                allowed_groups = { _norm_group(g)    for g in config.MONITORED_GROUPS if _norm_group(g) }
+            tail_lines = new_lines[i:]  # ← solo líneas nuevas completas
+
+            # Actualiza snapshot DESPUÉS de calcular el tail
+            STATE.qso_last_text = stable_text
+
+            # Conjuntos para decidir destino permitido y detectar “yo” (estricto)
+            # Usa tanto MY_ALIASES como MY_CALLSIGN por robustez
+            allowed_calls = {
+                _base_callsign(a)
+                for a in (getattr(config, "MY_ALIASES", []) or []) + (getattr(config, "MY_CALLSIGN", []) or [])
+                if isinstance(a, str) and a.strip()
+            }
+            allowed_groups = { _norm_group(g) for g in getattr(config, "MONITORED_GROUPS", []) if _norm_group(g) }
 
             def _is_me_strict(tok: str) -> bool:
                 base = _base_callsign(tok)
-                return any(_base_callsign(a) == base for a in config.MY_ALIASES if isinstance(a, str) and a.strip())
+                all_my = (getattr(config, "MY_ALIASES", []) or []) + (getattr(config, "MY_CALLSIGN", []) or [])
+                return any(_base_callsign(a) == base for a in all_my if isinstance(a, str) and a.strip())
 
             async def _parse_and_maybe_forward(line: str, source: str) -> bool:
                 """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
@@ -1132,13 +1138,15 @@ class JS8TelegramBridge:
                 if _is_me_strict(from_cs):
                     return False
 
-                # Solo si el destino soy yo o uno de mis grupos (usa los sets del closure)
-                if to_tok.startswith("@"):
-                    if _norm_group(to_tok) not in allowed_groups:
-                        return False
-                else:
-                    if _base_callsign(to_tok) not in allowed_calls:
-                        return False
+                # Solo si el destino soy yo o uno de mis grupos (helper robusto)
+                if not to_is_me_or_monitored_group(to_tok):
+                    # por compatibilidad, usa también los sets locales si el helper falla
+                    if to_tok.startswith("@"):
+                        if _norm_group(to_tok) not in allowed_groups:
+                            return False
+                    else:
+                        if _base_callsign(to_tok) not in allowed_calls:
+                            return False
 
                 # Anti-eco: si coincide con lo que acabo de transmitir (mismo TO + mismo cuerpo limpio), ignora
                 try:
@@ -1165,6 +1173,35 @@ class JS8TelegramBridge:
                         remember_forwarded_id(qso_id)
 
                 return True
+
+            # 1.a) Procesa SOLO las lineas nuevas completas
+            for raw in tail_lines:
+                line = raw.strip()
+                if not line:
+                    continue
+                await _parse_and_maybe_forward(line, "stable")
+
+            # 1.b) Línea final sin '\n': intenta inmediata y luego cuando se estabiliza
+            if trailing:
+                now = time.time()
+                poll = getattr(config, "QSO_POLL_SECONDS", 2.0)
+                if QSO_FROMTO_RE.match(trailing) and trailing != self._qso_last_forwarded:
+                    await _parse_and_maybe_forward(trailing, "trailing-immediate")
+                if trailing == self._qso_pending_text:
+                    if now - self._qso_pending_since >= max(0.8 * poll, 1.0):
+                        if trailing != self._qso_last_forwarded:
+                            await _parse_and_maybe_forward(trailing, "trailing-stable")
+                        self._qso_pending_text = ""
+                        self._qso_pending_since = 0.0
+                else:
+                    self._qso_pending_text = trailing
+                    self._qso_pending_since = now
+            else:
+                self._qso_pending_text = ""
+                self._qso_pending_since = 0.0
+
+            return  # no procesar RX.TEXT en otras ramas!
+
 
 
 
