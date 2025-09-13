@@ -728,6 +728,18 @@ def update_heard_from_call_activity(value):
         base = _base_callsign(cs)
         if not base or not CALLSIGN_RE.match(base):
             return
+    
+        # ⬇️ Nuevo: no metas mi propio indicativo/alias
+        my_bases = {
+            _base_callsign(x)
+            for x in _as_list(getattr(config, "MY_CALLSIGN", []))
+            + _as_list(getattr(config, "MY_ALIASES", []))
+            if isinstance(x, str)
+        }
+        if base in my_bases:
+            return
+        # ⬆️ Fin cambio
+    
         now = time.time()
         prev = STATE.heard.get(base, {})
         entry = {
@@ -739,6 +751,7 @@ def update_heard_from_call_activity(value):
             "ts": now,
         }
         STATE.heard[base] = entry
+
 
     if value is None:
         return
