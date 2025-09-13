@@ -1115,79 +1115,79 @@ class JS8TelegramBridge:
                 return any(_base_callsign(a) == base for a in all_my if isinstance(a, str) and a.strip())
 
 
-    async def _parse_and_maybe_forward(line: str, source: str) -> bool:
-        """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
-        m = QSO_FROMTO_RE.match(line)
-        if not m:
-            return False
-    
-        from_tok, to_tok, msg = m.groups()
-        from_cs = (from_tok or "").strip().upper()
-        to_tok  = (to_tok  or "").strip()
-        raw_msg = (msg     or "")
-    
-        # Limpia adornos finales (solo para anti-eco y vacíos); OJO: el gate de fin usa raw_msg
-        msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
-    
-        # ID del QSO (si existe en la línea)
-        qso_id = extract_qso_msg_id(line)
-    
-        # ¿Llega el símbolo de fin?
-        has_end = bool(END_OF_MSG_RE.search(raw_msg))
-    
-        # Si no ha llegado el símbolo de fin, no reenviar aún.
-        # Si hay QSO-ID, guarda el último fragmento por si quieres inspeccionarlo.
-        if not has_end:
-            if qso_id:
-                if not hasattr(self, "_qso_partial_by_id"):
-                    self._qso_partial_by_id = {}
-                self._qso_partial_by_id[qso_id] = line
-            return False
-    
-        # No reenviar nunca si no hay cuerpo (después de limpiar adornos)
-        if not msg_clean:
-            return False
-          
-        if qso_id:
-            remember_forwarded_id(qso_id)
-            if hasattr(self, "_qso_partial_by_id"):
-                self._qso_partial_by_id.pop(qso_id, None)
-
-        # Deduplicación por ID ya reenviado (solo cuando el mensaje está completo)
-        if qso_id and was_id_forwarded(qso_id):
-            return False
-    
-        # No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
-        if _is_me_strict(from_cs):
-            return False
-    
-        # Solo si el DESTINO soy yo o uno de mis grupos
-        if not to_is_me_or_monitored_group(to_tok):
-            return False
-    
-        # Anti-eco: si coincide con lo que acabo de transmitir (mismo TO + mismo cuerpo limpio), ignora
-        try:
-            if was_recently_sent(to_tok, msg_clean):
-                return False
-        except NameError:
-            pass
-    
-        # Evita duplicado inmediato literal
-        if line == self._qso_last_forwarded:
-            return False
-    
-        # ✅ Reenvía (mensaje completo con símbolo de fin)
-        self._qso_last_forwarded = line
-        await send_to_telegram(t("rx_qso_line", line=line))
-    
-        # Marca el ID como reenviado SOLO cuando ya está completo
-        if qso_id:
-            remember_forwarded_id(qso_id)
-            # Limpia caché de parcial si la tenías
-            if hasattr(self, "_qso_partial_by_id"):
-                self._qso_partial_by_id.pop(qso_id, None)
-    
-        return True
+            async def _parse_and_maybe_forward(line: str, source: str) -> bool:
+                """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
+                m = QSO_FROMTO_RE.match(line)
+                if not m:
+                    return False
+            
+                from_tok, to_tok, msg = m.groups()
+                from_cs = (from_tok or "").strip().upper()
+                to_tok  = (to_tok  or "").strip()
+                raw_msg = (msg     or "")
+            
+                # Limpia adornos finales (solo para anti-eco y vacíos); OJO: el gate de fin usa raw_msg
+                msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
+            
+                # ID del QSO (si existe en la línea)
+                qso_id = extract_qso_msg_id(line)
+            
+                # ¿Llega el símbolo de fin?
+                has_end = bool(END_OF_MSG_RE.search(raw_msg))
+            
+                # Si no ha llegado el símbolo de fin, no reenviar aún.
+                # Si hay QSO-ID, guarda el último fragmento por si quieres inspeccionarlo.
+                if not has_end:
+                    if qso_id:
+                        if not hasattr(self, "_qso_partial_by_id"):
+                            self._qso_partial_by_id = {}
+                        self._qso_partial_by_id[qso_id] = line
+                    return False
+            
+                # No reenviar nunca si no hay cuerpo (después de limpiar adornos)
+                if not msg_clean:
+                    return False
+                  
+                if qso_id:
+                    remember_forwarded_id(qso_id)
+                    if hasattr(self, "_qso_partial_by_id"):
+                        self._qso_partial_by_id.pop(qso_id, None)
+        
+                # Deduplicación por ID ya reenviado (solo cuando el mensaje está completo)
+                if qso_id and was_id_forwarded(qso_id):
+                    return False
+            
+                # No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
+                if _is_me_strict(from_cs):
+                    return False
+            
+                # Solo si el DESTINO soy yo o uno de mis grupos
+                if not to_is_me_or_monitored_group(to_tok):
+                    return False
+            
+                # Anti-eco: si coincide con lo que acabo de transmitir (mismo TO + mismo cuerpo limpio), ignora
+                try:
+                    if was_recently_sent(to_tok, msg_clean):
+                        return False
+                except NameError:
+                    pass
+            
+                # Evita duplicado inmediato literal
+                if line == self._qso_last_forwarded:
+                    return False
+            
+                # ✅ Reenvía (mensaje completo con símbolo de fin)
+                self._qso_last_forwarded = line
+                await send_to_telegram(t("rx_qso_line", line=line))
+            
+                # Marca el ID como reenviado SOLO cuando ya está completo
+                if qso_id:
+                    remember_forwarded_id(qso_id)
+                    # Limpia caché de parcial si la tenías
+                    if hasattr(self, "_qso_partial_by_id"):
+                        self._qso_partial_by_id.pop(qso_id, None)
+            
+                return True
 
 
 
