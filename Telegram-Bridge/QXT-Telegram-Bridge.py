@@ -383,18 +383,21 @@ def _norm_group(s: str) -> str:
 
 def is_me(callsign: str) -> bool:
     base = _base_callsign(callsign)
-    return any(_base_callsign(x) == base for x in config.MY_CALLSIGN if isinstance(x, str))
+    all_my = _as_list(getattr(config, "MY_CALLSIGN", [])) + _as_list(getattr(config, "MY_ALIASES", []))
+    return any(isinstance(x, str) and _base_callsign(x) == base for x in all_my)
 
 def to_is_me_or_monitored_group(to: str) -> bool:
     if not isinstance(to, str):
         return False
-    to = to.strip()
-    if is_me(to):
+    tok = to.strip()
+    if is_me(tok):
         return True
-    g = _norm_group(to)
-    if g and any(g == _norm_group(x) for x in config.MONITORED_GROUPS):
-        return True
-    return False
+    g = _norm_group(tok)
+    if not g:
+        return False
+    monitored = {_norm_group(x) for x in _as_list(getattr(config, "MONITORED_GROUPS", [])) if isinstance(x, str)}
+    return g in monitored
+
 
 
 RAW_PATTERN = re.compile(
@@ -404,33 +407,29 @@ RAW_PATTERN = re.compile(
 
 
 def is_own_qso_line(line: str) -> bool:
-    """
-    True si la línea del QSO window es mía (cubre ':' o '>' con o sin espacio,
-    y separadores raros). Vale para TX manual o enviado por el bot.
-    """
     if not isinstance(line, str):
         return False
     s = line.strip()
     if not s:
         return False
 
-    # 1) Intento “formal”: FROM[:|>]TO ...
     trip = parse_raw_line_to_triplet(s)
     if trip:
         frm, _to, _txt = trip
         if is_me(frm):
             return True
 
-    # 2) Heuristica robusta: empieza por mi indicativo + separador
     up = s.upper().lstrip()
-    for a in MY_CALLSIGN:
+    for a in (_as_list(getattr(config, "MY_CALLSIGN", [])) + _as_list(getattr(config, "MY_ALIASES", []))):
+        if not isinstance(a, str):
+            continue
         base = _base_callsign(a)
         if up.startswith(base):
-            # carácter siguiente aceptado como separador típico
             next_ch = up[len(base):len(base)+1]
             if next_ch in (":", ">", " ", "-", "—", "–", "\t"):
                 return True
     return False
+
 
 
 def parse_raw_line_to_triplet(text: str):
@@ -1371,22 +1370,25 @@ async def cmd_rescan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_heartbeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = 'HEARTBEAT ' + config.GRID
-    js8_send_now('@HB',text)
-    logger.info(f"TX → JS8: @HB {text}")
-
+    # 1) primero valida el chat
     if not await restricted_chat(update):
         return
+
+    # 2) sin argumentos
     if len(context.args) > 0:
         await update.effective_message.reply_text(t("hb_usage"))
         return
+
+    # 3) compón y envía UNA sola vez
+    text = f'HEARTBEAT {config.GRID}'
     try:
-        callsign = "@HB"
-        await BRIDGE.tx_message(callsign, text)
+        # usa el camino normal del bridge (ya hace remember_sent + await)
+        await BRIDGE.tx_message("@HB", text)
         logger.info(f"TX → JS8: @HB {text}")
         await update.effective_message.reply_text(t("hb_sent", text=text))
     except Exception as e:
         await update.effective_message.reply_text(f"Error sending HEARTBEAT: {e}")
+
 
 
 async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
