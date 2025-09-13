@@ -370,7 +370,8 @@ def extract_from_to_text(evt: dict) -> Optional[tuple[str, str, str]]:
     return None
 
 
-CALLSIGN_RE = re.compile(r'^(?=.*[A-Z])(?=.*\d)[A-Z0-9/]{3,}(?:-\d{1,2})?$', re.I)
+CALLSIGN_RE   = re.compile(r'^(?=.*[A-Z])(?=.*\d)[A-Z0-9/]{3,}(?:-\d{1,2})?$', re.I)
+GRID_FULL_RE  = re.compile(r'^[A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?$', re.I)  # Maidenhead 4/6/8
 
 
 def _base_callsign(s: str) -> str:
@@ -729,7 +730,7 @@ def update_heard_from_call_activity(value):
         if not isinstance(cs, str):
             return
         base = _base_callsign(cs)
-        if not base or not CALLSIGN_RE.match(base):
+        if not base or not CALLSIGN_RE.match(base) or GRID_FULL_RE.fullmatch(base):
             return
     
         # ⬇️ Nuevo: no metas mi propio indicativo/alias
@@ -778,7 +779,11 @@ def update_heard_from_call_activity(value):
             line = line.strip()
             if not line:
                 continue
-            cs = next((tok for tok in line.split() if CALLSIGN_RE.match(tok)), None)
+            cs = next(
+                (tok for tok in line.split()
+                if CALLSIGN_RE.match(tok) and not GRID_FULL_RE.fullmatch(tok)),
+                None
+            )
             if not cs:
                 continue
             m_snr = re.search(r'\bSNR\s*([+-]?\d{1,2})\b', line, re.I)
@@ -837,11 +842,18 @@ def update_heard_from_call_activity(value):
                         text = (d.get("TEXT") or "").strip()
         
                         # Indicativo en TEXT: "EA1ABC: ..." o "EA1ABC> ..."
+                        # (bloque is_offset_map de list/dict, primera extracción)
                         m_cs = re.match(r'\s*([A-Z0-9/]{3,})\s*[:>]', text, re.I)
-                        if m_cs and CALLSIGN_RE.match(m_cs.group(1)):
-                            cs = m_cs.group(1).upper()
-                        else:
-                            cs = next((tok.upper() for tok in text.split() if CALLSIGN_RE.match(tok)), None)
+                        if m_cs:
+                            cand = m_cs.group(1).upper()
+                            cs = cand if (CALLSIGN_RE.match(cand) and not GRID_FULL_RE.fullmatch(cand)) else None
+                        if not cs:
+                            cs = next(
+                                (tok.upper() for tok in text.split()
+                                 if CALLSIGN_RE.match(tok) and not GRID_FULL_RE.fullmatch(tok)),
+                                None
+                        )
+
         
                         snr  = _to_int(d.get("SNR"))
                         m_g  = GRID_RE.search(text)
