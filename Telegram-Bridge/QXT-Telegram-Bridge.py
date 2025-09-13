@@ -1088,121 +1088,74 @@ class JS8TelegramBridge:
             STATE.qso_last_text = stable_text
 
             # Conjuntos para decidir destino permitido y detectar “yo” (estricto)
-            # Usa tanto MY_ALIASES como MY_CALLSIGN por robustez
-            allowed_calls = {
-                _base_callsign(a)
-                for a in (getattr(config, "MY_ALIASES", []) or []) + (getattr(config, "MY_CALLSIGN", []) or [])
-                if isinstance(a, str) and a.strip()
-            }
-            allowed_groups = { _norm_group(g) for g in getattr(config, "MONITORED_GROUPS", []) if _norm_group(g) }
+            allowed_calls  = { _base_callsign(a) for a in config.MY_ALIASES if isinstance(a, str) and a.strip() }
+            allowed_groups = { _norm_group(g)    for g in config.MONITORED_GROUPS if _norm_group(g) }
 
             def _is_me_strict(tok: str) -> bool:
                 base = _base_callsign(tok)
-                all_my = (getattr(config, "MY_ALIASES", []) or []) + (getattr(config, "MY_CALLSIGN", []) or [])
-                return any(_base_callsign(a) == base for a in all_my if isinstance(a, str) and a.strip())
+                return any(_base_callsign(a) == base for a in config.MY_ALIASES if isinstance(a, str) and a.strip())
 
             async def _parse_and_maybe_forward(line: str, source: str) -> bool:
                 """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
                 m = QSO_FROMTO_RE.match(line)
                 if not m:
                     return False
-
+            
                 from_tok, to_tok, msg = m.groups()
                 from_cs = (from_tok or "").strip().upper()
                 to_tok  = (to_tok  or "").strip()
                 raw_msg = (msg     or "")
-
-                # Limpia adornos finales (diamantes) y espacios
+            
+                # Limpia adornos y espacios; nos sirve para decidir si hay cuerpo de verdad
                 msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
-
-                # ID del QSO (si existe en la línea)
+            
+                # 0) ID del QSO (si existe en la línea)
                 qso_id = extract_qso_msg_id(line)
-
-                # No reenviar "trailing-immediate" si aún no hay cuerpo (solo FROM→TO)
+            
+                # 🚫 No reenviar "trailing-immediate" si aún no hay cuerpo (solo FROM→TO)
                 if source == "trailing-immediate" and not msg_clean:
                     return False
-
-                # No reenviar nunca si no hay cuerpo
+            
+                # (Opcional pero recomendable) No reenviar nunca si no hay cuerpo
                 if not msg_clean:
                     return False
-
-                # Memoria local por-ID para deduplicar (ID + contenido)
-                if not hasattr(self, "_qso_last_by_id"):
-                    self._qso_last_by_id = {}
-                if qso_id:
-                    prev = self._qso_last_by_id.get(qso_id)
-                    if prev and prev == msg_clean:
-                        return False  # mismo contenido ya enviado para este ID
-
-                # No reenviar si el remitente soy yo (comparación estricta base-callsign)
+            
+                # 1) Deduplicación por ID (si ya fue reenviado una vez)
+                if qso_id and was_id_forwarded(qso_id):
+                    return False
+            
+                # 2) No reenviar si el REMITENTE soy yo (comparación estricta base-callsign)
                 if _is_me_strict(from_cs):
                     return False
-
-                # Solo si el destino soy yo o uno de mis grupos (helper robusto)
-                if not to_is_me_or_monitored_group(to_tok):
-                    # por compatibilidad, usa también los sets locales si el helper falla
-                    if to_tok.startswith("@"):
-                        if _norm_group(to_tok) not in allowed_groups:
-                            return False
-                    else:
-                        if _base_callsign(to_tok) not in allowed_calls:
-                            return False
-
-                # Anti-eco: si coincide con lo que acabo de transmitir (mismo TO + mismo cuerpo limpio), ignora
+            
+                # 3) Solo si el DESTINO soy yo (alias/base) o uno de mis grupos
+                if to_tok.startswith("@"):
+                    if _norm_group(to_tok) not in allowed_groups:
+                        return False
+                else:
+                    if _base_callsign(to_tok) not in allowed_calls:
+                        return False
+            
+                # 4) Anti-eco: si coincide con lo que ACABO de transmitir (mismo TO + mismo cuerpo limpio), ignora
                 try:
                     if was_recently_sent(to_tok, msg_clean):
                         return False
                 except NameError:
                     pass
-
-                # Evita duplicado inmediato literal
+            
+                # 5) Evita duplicado inmediato literal
                 if line == self._qso_last_forwarded:
                     return False
-
-                # ✅ Reenvía (con fallback si falta la clave i18n)
+            
+                # ✅ Reenvía
                 self._qso_last_forwarded = line
-                try:
-                    await send_to_telegram(t("rx_qso_line", line=line))
-                except Exception:
-                    await send_to_telegram(f"🟢 Mensaje Recibido:\n{line}")
-
-                # Actualiza memoria por-ID y marca reenviado SOLO si la línea ya es estable
-                if qso_id:
-                    self._qso_last_by_id[qso_id] = msg_clean
-                    if source in ("stable", "trailing-stable"):
-                        remember_forwarded_id(qso_id)
-
+                await send_to_telegram(t("rx_qso_line", line=line))
+            
+                # 6) 🧠 Recuerda el ID SOLO cuando la línea ya está completa/estable
+                if qso_id and source in ("stable", "trailing-stable"):
+                    remember_forwarded_id(qso_id)
+            
                 return True
-
-            # 1.a) Procesa SOLO las lineas nuevas completas
-            for raw in tail_lines:
-                line = raw.strip()
-                if not line:
-                    continue
-                await _parse_and_maybe_forward(line, "stable")
-
-            # 1.b) Línea final sin '\n': intenta inmediata y luego cuando se estabiliza
-            if trailing:
-                now = time.time()
-                poll = getattr(config, "QSO_POLL_SECONDS", 2.0)
-                if QSO_FROMTO_RE.match(trailing) and trailing != self._qso_last_forwarded:
-                    await _parse_and_maybe_forward(trailing, "trailing-immediate")
-                if trailing == self._qso_pending_text:
-                    if now - self._qso_pending_since >= max(0.8 * poll, 1.0):
-                        if trailing != self._qso_last_forwarded:
-                            await _parse_and_maybe_forward(trailing, "trailing-stable")
-                        self._qso_pending_text = ""
-                        self._qso_pending_since = 0.0
-                else:
-                    self._qso_pending_text = trailing
-                    self._qso_pending_since = now
-            else:
-                self._qso_pending_text = ""
-                self._qso_pending_since = 0.0
-
-            return  # no procesar RX.TEXT en otras ramas!
-
-
 
 
 
@@ -1582,4 +1535,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
