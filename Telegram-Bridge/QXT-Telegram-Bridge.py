@@ -1183,26 +1183,35 @@ class JS8TelegramBridge:
             # ---------- NUEVO: “desenvolver” wraps de consola ----------
             def _unwrap_wrap(lines: list[str]) -> list[str]:
                 """
-                Une cortes típicos de consola donde el indicativo se parte al final de una línea y
-                continúa al inicio de la siguiente. E.g.:
-                  '30QXT' + '01: @QXTNET SNR?...'  →  '30QXT01: @QXTNET SNR?...'
+                Une cortes típicos cuando el sufijo del indicativo quedó en una línea y
+                la parte numérica (p.ej. '01:') al comienzo de la siguiente.
+                Evita falsos positivos como 'T' + '01:' → 'T01:'.
                 """
+                def _has_letter_and_digit(s: str) -> bool:
+                    s = s.upper()
+                    return any(c.isalpha() for c in s) and any(c.isdigit() for c in s)
+            
                 out: list[str] = []
                 for ln in lines:
                     ln = ln.rstrip("\n")
                     if out:
                         prev = out[-1]
-                        # ¿prev termina en trozo de indicativo y ln empieza con el resto seguido de ':' o '>'?
-                        m1 = re.search(r'([A-Za-z0-9/+-]{1,7})$', prev)
-                        m2 = re.match(r'^\s*([A-Za-z0-9/+-]{1,7})([:>].*)$', ln)
+                        # cola candidata del prev: token alfanumérico (≥3) al final
+                        m1 = re.search(r'([A-Za-z0-9/+-]{3,})$', prev)
+                        # cabeza de la actual: SOLO dígitos (con posible -NN) seguidos de ':' o '>'
+                        m2 = re.match(r'^\s*(\d{1,3}(?:-\d{1,2})?)([:>].*)$', ln)
                         if m1 and m2:
-                            candidate = (m1.group(1) + m2.group(1)).upper()
-                            if CALLSIGN_RE.match(candidate):
-                                # fusiona ambas
-                                out[-1] = prev[:m1.span(1)[0]] + candidate + m2.group(2)
-                                continue
+                            prev_tail = m1.group(1)
+                            # debe parecer prefijo real de un indicativo: letras + dígitos (p.ej. '30QXT')
+                            if _has_letter_and_digit(prev_tail):
+                                candidate = (prev_tail + m2.group(1)).upper()
+                                # valida con tu patrón global de indicativos
+                                if CALLSIGN_RE.match(candidate):
+                                    out[-1] = prev[:m1.span(1)[0]] + candidate + m2.group(2)
+                                    continue
                     out.append(ln)
                 return out
+
     
             # Aplica unwrap a las nuevas líneas completas
             tail_lines = _unwrap_wrap([l if isinstance(l, str) else str(l) for l in tail_lines])
