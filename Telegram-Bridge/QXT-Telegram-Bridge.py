@@ -1506,6 +1506,16 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             line_tpl = "{cs:<9} {dist:<8} SNR {snr:<4} {grid:<6} {age} ago"
 
+        # --- Filtros locales mínimos (no tocamos regex globales) ---
+        DIGIT_CS_RE = re.compile(r'^(?=.*\d)[A-Z0-9/]{3,}(?:-\d{1,2})?$', re.I)
+        GRID_FULL_RE = re.compile(r'^[A-R]{2}\d{2}(?:[A-X]{2})?(?:\d{2})?$', re.I)
+
+        my_bases = {
+            _base_callsign(x) for x in (_as_list(getattr(config, "MY_CALLSIGN", []))
+                                        + _as_list(getattr(config, "MY_ALIASES", [])))
+            if isinstance(x, str) and x.strip()
+        }
+      
         # --- Construcción de líneas usando i18n ---
         lines = []
         count = 0
@@ -1513,8 +1523,18 @@ async def cmd_stations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cs = _derive_callsign(e)
             if not cs:
                 continue
-            # no mostrarme a mí ni tokens tipo grid
-            if is_me(cs) or GRID_FULL_RE.fullmatch(cs):
+            base = _base_callsign(cs)
+
+            # ❌ no mostrarme a mí mismo
+            if base in my_bases:
+                continue
+
+            # ❌ descartar palabras sin dígitos (HEARTBEAT, TNX, etc.)
+            if not DIGIT_CS_RE.match(base):
+                continue
+
+            # ❌ descartar locators (GI65, IN80, …) colados como indicativo
+            if GRID_FULL_RE.match(base):
                 continue
 
             snr = e.get("snr")
