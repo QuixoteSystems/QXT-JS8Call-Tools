@@ -29,10 +29,13 @@ from i18n import t
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
 from collections import deque
+from httpx import Limits
+
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
+from telegram.error import NetworkError, TimedOut, RetryAfter
 
 
 # =================================================
@@ -1367,7 +1370,15 @@ BRIDGE = JS8TelegramBridge()
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error("Unhandled exception in handler", exc_info=context.error)
+    err = context.error
+    if isinstance(err, (NetworkError, TimedOut)):
+        logger.warning(f"Network hiccup (ignored): {err}")
+        return
+    if isinstance(err, RetryAfter):
+        logger.warning(f"Rate limited. Retry after {err.retry_after}s")
+        return
+    logger.error("Unhandled exception in handler", exc_info=err)
+
 
 async def restricted_chat(update: Update) -> bool:
     # Solo aceptamos mensajes del chat configurado
@@ -1724,11 +1735,17 @@ async def on_startup(app: Application):
     logger.info("Puente iniciado. Esperando eventos...")
 
 def build_application() -> Application:
+    limits = Limits(  # opción A: desactivar keep-alive (más robusto)
+        max_keepalive_connections=0
+    )
+    # # opción B (alternativa): keep-alive corto
+    # limits = Limits(keepalive_expiry=10, max_connections=20, max_keepalive_connections=5)
 
     req = HTTPXRequest(
         connect_timeout=getattr(config, "TG_CONNECT_TIMEOUT", 20),
         read_timeout=getattr(config, "TG_READ_TIMEOUT", 60),
         write_timeout=getattr(config, "TG_WRITE_TIMEOUT", 60),
+        pool_limits=limits,
     )
     application = (
         Application.builder()
@@ -1737,6 +1754,9 @@ def build_application() -> Application:
         .post_init(on_startup)
         .build()
     )
+    ...
+    return application
+
     #application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(on_startup).build()
   
     application.add_handler(CommandHandler("help", cmd_help))
@@ -1756,7 +1776,8 @@ def build_application() -> Application:
 APP: Application = build_application()
 
 def main():
-    APP.run_polling(close_loop=False)  # usamos el loop global para nuestras tareas
+    APP.run_polling(timeout=30, close_loop=False)
+
 
 if __name__ == "__main__":
     main()
