@@ -1734,43 +1734,43 @@ async def on_startup(app: Application):
     asyncio.create_task(poll_call_activity_loop())
     logger.info("Puente iniciado. Esperando eventos...")
 
-def build_application() -> Application:
-    limits = Limits(  # opción A: desactivar keep-alive (más robusto)
-        max_keepalive_connections=0
-    )
-    # # opción B (alternativa): keep-alive corto
-    # limits = Limits(keepalive_expiry=10, max_connections=20, max_keepalive_connections=5)
+# borra: from httpx import Limits
 
+def build_application() -> Application:
+    # Cliente HTTPX para Telegram con timeouts configurables desde config.py
     req = HTTPXRequest(
         connect_timeout=getattr(config, "TG_CONNECT_TIMEOUT", 20),
         read_timeout=getattr(config, "TG_READ_TIMEOUT", 60),
         write_timeout=getattr(config, "TG_WRITE_TIMEOUT", 60),
-        pool_limits=limits,
+        # Nota: NO usar 'pool_limits' (no está soportado por HTTPXRequest en PTB 21.6)
     )
+
     application = (
         Application.builder()
         .token(config.TELEGRAM_BOT_TOKEN)
         .request(req)
-        .post_init(on_startup)
+        .post_init(on_startup)   # arranca las tareas de fondo al iniciar
         .build()
     )
-    ...
-    return application
 
-    #application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(on_startup).build()
-  
+    # === Handlers de comandos ===
     application.add_handler(CommandHandler("help", cmd_help))
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CommandHandler("to", cmd_to))
     application.add_handler(CommandHandler("group", cmd_group))
     application.add_handler(CommandHandler("last", cmd_last))
-    application.add_handler(CommandHandler(["stations","estaciones"], cmd_stations))
-    application.add_handler(CommandHandler(["heartbeat","hb"], cmd_heartbeat))
-    application.add_handler(CommandHandler(["rescan","scan"], cmd_rescan))
+    application.add_handler(CommandHandler(["stations", "estaciones"], cmd_stations))
+    application.add_handler(CommandHandler(["heartbeat", "hb"], cmd_heartbeat))
+    application.add_handler(CommandHandler(["rescan", "scan"], cmd_rescan))
+
+    # Texto libre → /last
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, plain_text_handler))
+
+    # Handler de errores
     application.add_error_handler(error_handler)
 
     return application
+
 
 # Application global (para send_to_telegram)
 APP: Application = build_application()
