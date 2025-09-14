@@ -2,17 +2,17 @@
 # -*- coding: utf-8 -*-
 """
 JS8Call ⇄ Telegram Bridge
-- Reenvía a Telegram los mensajes JS8 dirigidos a tu indicativo o a tus grupos.
-- Permite contestar desde Telegram hacia estaciones o grupos en JS8Call.
+- Forward JS8 messages addressed to your callsign or groups to Telegram.
+- Allows you to reply from Telegram to stations or groups in JS8Call.
 
-Requiere: python-telegram-bot==21.6
-Probado con Python 3.10+
+Requiered: python-telegram-bot==21.6
+Tested with Python 3.10+
 
-Comandos en Telegram:
-  /to CALLSIGN mensaje          -> Envía "mensaje" a CALLSIGN
-  /group @GRUPO mensaje         -> Envía "mensaje" al grupo (@GRUPO)
-  /last mensaje                 -> Responde al último corresponsal recibido
-  /status                       -> Estado del puente
+  /help                         -> Show this menu
+  /to CALLSIGN mensaje          -> Send "message" to CALLSIGN
+  /group @GRUPO mensaje         -> Send "message" to Group (@GRUPO)
+  /last mensaje                 -> Reply to the last station
+  /status                       -> Bridge Status
   /heartbeat                    -> Send Heartbeat to the General Net
   /hb                           -> Send Heartbeat to the General Net
   /stations                     -> Reply last stations heared
