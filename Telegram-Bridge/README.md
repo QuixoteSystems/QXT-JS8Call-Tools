@@ -21,8 +21,6 @@ To adapt to your enviroment and your own machine, edit config.py file and change
 
 ### Getting your Telegram Bot Token & Your User ID
 
-### Create a bot (Bot Token)
-
 1- Open Telegram and chat with @BotFather.
 
 2- Send /newbot, follow the prompts (choose a name and a unique username).
