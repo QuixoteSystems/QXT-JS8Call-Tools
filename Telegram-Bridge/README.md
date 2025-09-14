@@ -19,6 +19,27 @@ It composes the proper JS8 line and triggers transmit, normalizes callsigns/grou
 ### Configuration
 To adapt to your enviroment and your own machine, edit config.py file and change it with your own data (Language, Callsign, IP, Port...).
 
+#### Getting your Telegram Bot Token & Your User ID
+
+**Create a bot (Bot Token)**
+
+1- Open Telegram and chat with @BotFather.
+
+2- Send /newbot, follow the prompts (choose a name and a unique username).
+
+3- BotFather will reply with a bot token like 123456789:AA....
+
+4- Keep it secret—don’t commit it to Git or share with anybody.
+
+**Get your own Telegram User ID**
+
+5- Send a message to @userinfobot (or @getidsbot) and it will reply with your numeric ID.
+
+6- Allow the bot to message you
+
+7- Open a chat with your bot and press Start at least once, also you can use this [image](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/blob/main/QXT-JS8Call-Tools-small.png) to your bot.
+
+
 ### Running
 
 ```shell
