@@ -1141,7 +1141,7 @@ class JS8TelegramBridge:
 
 
     async def on_js8_event(self, evt: dict):
-    
+        
         # Patrones: prefijos "HH:MM:SS - (n) -" y formato FROM [:|>] TO MENSAJE
         QSO_FROMTO_RE = re.compile(
             r'^\s*'
@@ -1180,7 +1180,34 @@ class JS8TelegramBridge:
                 i += 1
             tail_lines = new_lines[i:]  # ← solo líneas nuevas completas
     
-            # Actualiza snapshot DESPUÉS de calcular el tail
+            # ---------- NUEVO: “desenvolver” wraps de consola ----------
+            def _unwrap_wrap(lines: list[str]) -> list[str]:
+                """
+                Une cortes típicos de consola donde el indicativo se parte al final de una línea y
+                continúa al inicio de la siguiente. E.g.:
+                  '30QXT' + '01: @QXTNET SNR?...'  →  '30QXT01: @QXTNET SNR?...'
+                """
+                out: list[str] = []
+                for ln in lines:
+                    ln = ln.rstrip("\n")
+                    if out:
+                        prev = out[-1]
+                        # ¿prev termina en trozo de indicativo y ln empieza con el resto seguido de ':' o '>'?
+                        m1 = re.search(r'([A-Za-z0-9/+-]{1,7})$', prev)
+                        m2 = re.match(r'^\s*([A-Za-z0-9/+-]{1,7})([:>].*)$', ln)
+                        if m1 and m2:
+                            candidate = (m1.group(1) + m2.group(1)).upper()
+                            if CALLSIGN_RE.match(candidate):
+                                # fusiona ambas
+                                out[-1] = prev[:m1.span(1)[0]] + candidate + m2.group(2)
+                                continue
+                    out.append(ln)
+                return out
+    
+            # Aplica unwrap a las nuevas líneas completas
+            tail_lines = _unwrap_wrap([l if isinstance(l, str) else str(l) for l in tail_lines])
+    
+            # Actualiza snapshot DESPUÉS de calcular y “desenvolver” el tail
             STATE.qso_last_text = stable_text
     
             my_aliases = _as_list(getattr(config, "MY_ALIASES", []))
@@ -1205,69 +1232,68 @@ class JS8TelegramBridge:
                 to_tok  = (to_tok  or "").strip()
                 raw_msg = (msg     or "")
     
-                # Limpia adornos finales (solo para anti-eco y vacíos); OJO: el gate de fin usa raw_msg
+                # Limpia adornos finales (solo para anti-eco y vacíos); el “gate” usa raw_msg
                 msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
     
                 # ID del QSO (si existe en la línea)
-                # ...
                 qso_id = extract_qso_msg_id(line)
                 has_end = bool(END_OF_MSG_RE.search(raw_msg))
-                
+    
+                # Si no ha llegado el símbolo de fin, no reenviar aún; guarda parcial por ID si aplica
                 if not has_end:
                     if qso_id:
                         if not hasattr(self, "_qso_partial_by_id"):
                             self._qso_partial_by_id = {}
                         self._qso_partial_by_id[qso_id] = line
                     return False
-                
+    
                 # cuerpo limpio obligatorio
                 if not msg_clean:
                     return False
-                
-                # ⬇️ PRIMERO dedupe por ID (no lo marques aún)
+    
+                # PRIMERO dedupe por ID ya reenviado
                 if qso_id and was_id_forwarded(qso_id):
                     return False
-                
+    
                 # no eco propio
                 if _is_me_strict(from_cs):
                     return False
-                
+    
                 # destino debe ser yo o grupo vigilado
                 if not to_is_me_or_monitored_group(to_tok):
                     return False
-                
+    
                 # anti-eco (mismo TO + mismo cuerpo)
                 try:
                     if was_recently_sent(to_tok, msg_clean):
                         return False
                 except NameError:
                     pass
-                
+    
                 # evita duplicado literal inmediato
                 if line == self._qso_last_forwarded:
                     return False
-                
-                # ✅ reenviar
+    
+                # ✅ reenviar (mensaje completo con símbolo de fin)
                 self._qso_last_forwarded = line
                 await send_to_telegram(t("rx_qso_line", line=line))
-                
-                # ⬇️ AHORA sí: marca el ID como reenviado y limpia parcial
+    
+                # Marca el ID como reenviado y limpia parcial
                 if qso_id:
                     remember_forwarded_id(qso_id)
                     if hasattr(self, "_qso_partial_by_id"):
                         self._qso_partial_by_id.pop(qso_id, None)
-                
-                return True
-
     
-            # ---- 1.a) Procesa SOLO las líneas nuevas completas ----
+                return True
+    
+            # ---- 1.a) Procesa SOLO las líneas nuevas completas (ya “desenvueltas”) ----
             for raw in tail_lines:
                 line = raw.strip()
                 if not line:
                     continue
                 await _parse_and_maybe_forward(line, "stable")
     
-            # ---- 1.b) Línea final sin '\n' ----
+            # ---- 1.b) Línea final sin '\n' (en vivo) ----
             if trailing:
                 if QSO_FROMTO_RE.match(trailing):
                     if END_OF_MSG_RE.search(trailing):
@@ -1356,6 +1382,7 @@ class JS8TelegramBridge:
             pass
     
         await send_to_telegram(t("rx_generic", frm=frm, to=to, txt=txt))
+
     
 
 
