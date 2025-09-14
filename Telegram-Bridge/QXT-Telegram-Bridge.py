@@ -1106,6 +1106,9 @@ class JS8TelegramBridge:
                 self.on_js8_event,   # ← aquí estaba el error
             )
             await self.js8.connect()
+            await self.js8.send({"type":"RX.GET_CALL_ACTIVITY","params":{}})
+            await asyncio.sleep(0.8)
+            await self.js8.send({"type":"RX.GET_BAND_ACTIVITY","params":{}})
         else:
             self.js8 = JS8ClientUDP(
                 config.JS8_HOST,
