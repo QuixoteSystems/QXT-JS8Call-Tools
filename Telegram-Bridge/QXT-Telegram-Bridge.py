@@ -218,6 +218,7 @@ def _dump_activity_debug(val) -> None:
 
 _QSO_ID_RE = re.compile(r'[-–—]\s*\((\d+)\)\s*[-–—]')  # busca "- (1234) -" en la línea
 END_OF_MSG_RE = re.compile(r'[♢◇♦♧♤♥]\s*$')            # símbolo de fin al final de la línea
+MOJIBAKE_END_RE = re.compile(r'(?:â[\xa0£¥¦]?)\s*$')  # ♦/♥/♣/♠ mal decodificados al final
 
 
 def extract_qso_msg_id(line: str) -> str | None:
@@ -1240,7 +1241,15 @@ class JS8TelegramBridge:
             
                     # ID y final de mensaje
                     qso_id = extract_qso_msg_id(line)
-                    has_end = bool(END_OF_MSG_RE.search(raw_msg))
+                    has_end = bool(END_OF_MSG_RE.search(raw_msg) or MOJIBAKE_END_RE.search(line))
+                  
+                    require_end = (source != "stable")   # solo la línea “en vivo” exige fin
+                    if require_end and not has_end:
+                        if qso_id:
+                            if not hasattr(self, "_qso_partial_by_id"):
+                                self._qso_partial_by_id = {}
+                            self._qso_partial_by_id[qso_id] = line
+                        return False
             
                     # Espera símbolo de fin
                     if not has_end:
