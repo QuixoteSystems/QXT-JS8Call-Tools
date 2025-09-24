@@ -39,11 +39,6 @@ from telegram.request import HTTPXRequest
 from telegram.error import NetworkError, TimedOut, RetryAfter
 
 
-# =================================================
-
-import logging
-import config
-
 # =========== LOGGING ========================
 
 def _resolve_log_level():
@@ -514,18 +509,23 @@ def _parse_leading_destination(txt: str) -> tuple[str, str]:
 
 def extract_from_to_text(evt: dict):
     """
-    Extrae (FROM, TO, TEXT) de cualquier evento JS8Call que traiga value y TEXT.
+    Extrae (FROM, TO, TEXT) de cualquier evento JS8Call que traiga datos en
+    `params` (lo habitual) o en `value` (algunas respuestas).
     - Si el inicio del TEXT nombra un destino (@GRUPO o CALLSIGN), LO PRIORIZA.
     """
     if not isinstance(evt, dict):
         return None
-    v = evt.get("value")
+
+    # =======================
+    # FIX: leer primero PARAMS (JS8Call entrega RX.* aquí), luego VALUE
+    # =======================
+    v = evt.get("params") or evt.get("value") or {}
     if not isinstance(v, dict):
         return None
 
     frm = v.get("FROM") or v.get("from")
     to  = v.get("TO")   or v.get("to")
-    txt = v.get("TEXT") or v.get("text")
+    txt = v.get("TEXT") or v.get("text") or v.get("value")  # por si alguna variante pone 'value'
     if not isinstance(txt, str):
         return None
     txt = txt.strip()
@@ -576,9 +576,6 @@ def parse_rx_spot(evt: dict) -> Optional[dict]:
         "offset": offset,
         "ts": time.time(),
     }
-
-
-
 
 
 # ---- Helpers: Call Activity → heard -----------------
@@ -859,7 +856,7 @@ def update_heard_from_call_activity(value):
                         )
 
         
-                        snr  = _to_int(d.get("SNR"))
+                        snr  = _to_int_safe(d.get("SNR"))
                         m_g  = GRID_RE.search(text)
                         grid = m_g.group(1).upper() if m_g else None
                         freq = d.get("FREQ") or d.get("DIAL")
@@ -1283,7 +1280,7 @@ class JS8TelegramBridge:
                 if line == self._qso_last_forwarded:
                     return False
     
-                # ✅ reenviar (mensaje completo con símbolo de fin)
+                # Reenviar (mensaje completo con símbolo de fin)
                 self._qso_last_forwarded = line
                 await send_to_telegram(t("rx_qso_line", line=line))
     
@@ -1389,6 +1386,11 @@ class JS8TelegramBridge:
                 return
         except NameError:
             pass
+
+        # =======================
+        # FIX: recuerda el último corresponsal para /last
+        # =======================
+        STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = frm
     
         await send_to_telegram(t("rx_generic", frm=frm, to=to, txt=txt))
 
@@ -1821,3 +1823,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
