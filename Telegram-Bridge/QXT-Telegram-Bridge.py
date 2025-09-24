@@ -1231,49 +1231,49 @@ class JS8TelegramBridge:
                 """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
                 m = QSO_FROMTO_RE.match(line)
                 if not m:
-                # --- Fallback mínimo para líneas del QSO window con ID delante ---
-                s = line.strip()
-                # quita hora si la hubiera
-                s = re.sub(r'^\s*(?:\[\d{2}:\d{2}:\d{2}\]|\d{2}:\d{2}:\d{2})\s*-\s*', '', s)
-                # quita variantes de "(id) -" o "- (id) -"
-                s = re.sub(r'^\s*(?:[-–—]?\s*\(\d+\)\s*[-–—]?\s*)', '', s)
-            
-                # intenta de nuevo extraer FROM: TO MENSAJE (ej. "233HA011: 21BILLY ...")
-                m2 = re.match(r'^\s*([@A-Za-z0-9/+-]+)\s*[:>]\s*(@?[A-Za-z0-9/+-]{3,})\b\s*(.*)$', s)
-                if m2:
-                    from_cs, to_tok, rest = m2.groups()
-                    from_cs = (from_cs or '').upper().strip()
-                    to_tok  = (to_tok  or '').strip()
-                    raw_msg = rest or ''
-                    msg_clean = re.sub(r'[♢◇♦♧♤♥]+$', '', raw_msg).strip()
-            
-                    # eco propio
-                    if is_me(from_cs):
-                        return False
-            
-                    # solo si el destino soy yo o un grupo vigilado
-                    if not to_is_me_or_monitored_group(to_tok):
-                        return False
-            
-                    # si no quieres HB generales, filtra @HB + 'HEARTBEAT'
-                    if not getattr(config, "FORWARD_GENERAL_HB", True):
-                        if _norm_group(to_tok) == "@HB" and re.search(r'\bHEARTBEAT\b', raw_msg, re.I):
+                    # --- Fallback mínimo para líneas del QSO window con ID delante ---
+                    s = line.strip()
+                    # quita hora si la hubiera
+                    s = re.sub(r'^\s*(?:\[\d{2}:\d{2}:\d{2}\]|\d{2}:\d{2}:\d{2})\s*-\s*', '', s)
+                    # quita variantes de "(id) -" o "- (id) -"
+                    s = re.sub(r'^\s*(?:[-–—]?\s*\(\d+\)\s*[-–—]?\s*)', '', s)
+                
+                    # intenta de nuevo extraer FROM: TO MENSAJE (ej. "233HA011: 21BILLY ...")
+                    m2 = re.match(r'^\s*([@A-Za-z0-9/+-]+)\s*[:>]\s*(@?[A-Za-z0-9/+-]{3,})\b\s*(.*)$', s)
+                    if m2:
+                        from_cs, to_tok, rest = m2.groups()
+                        from_cs = (from_cs or '').upper().strip()
+                        to_tok  = (to_tok  or '').strip()
+                        raw_msg = rest or ''
+                        msg_clean = re.sub(r'[♢◇♦♧♤♥]+$', '', raw_msg).strip()
+                
+                        # eco propio
+                        if is_me(from_cs):
                             return False
-            
-                    # anti-eco (ya enviado recientemente)
-                    try:
-                        if was_recently_sent(to_tok, msg_clean):
+                
+                        # solo si el destino soy yo o un grupo vigilado
+                        if not to_is_me_or_monitored_group(to_tok):
                             return False
-                    except NameError:
-                        pass
-            
-                    # OK: guarda último corresponsal y reenvía
-                    STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = from_cs
-                    await send_to_telegram(t("rx_generic", frm=from_cs, to=to_tok, txt=raw_msg))
-                    return True
-            
-                # Si no se pudo extraer FROM/TO, como último recurso puedes ignorar
-                return False
+                
+                        # si no quieres HB generales, filtra @HB + 'HEARTBEAT'
+                        if not getattr(config, "FORWARD_GENERAL_HB", True):
+                            if _norm_group(to_tok) == "@HB" and re.search(r'\bHEARTBEAT\b', raw_msg, re.I):
+                                return False
+                
+                        # anti-eco (ya enviado recientemente)
+                        try:
+                            if was_recently_sent(to_tok, msg_clean):
+                                return False
+                        except NameError:
+                            pass
+                
+                        # OK: guarda último corresponsal y reenvía
+                        STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = from_cs
+                        await send_to_telegram(t("rx_generic", frm=from_cs, to=to_tok, txt=raw_msg))
+                        return True
+                
+                    # Si no se pudo extraer FROM/TO, como último recurso puedes ignorar
+                    return False
 
     
                 # cuerpo limpio obligatorio
