@@ -1230,27 +1230,46 @@ class JS8TelegramBridge:
             async def _parse_and_maybe_forward(line: str, source: str) -> bool:
                 """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
                 m = QSO_FROMTO_RE.match(line)
+                m = QSO_FROMTO_RE.match(line)
                 if not m:
-                    return False
-    
-                from_tok, to_tok, msg = m.groups()
-                from_cs = (from_tok or "").strip().upper()
-                to_tok  = (to_tok  or "").strip()
-                raw_msg = (msg     or "")
-    
-                # Limpia adornos finales (solo para anti-eco y vacíos); el “gate” usa raw_msg
-                msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
-    
-                # ID del QSO (si existe en la línea)
-                qso_id = extract_qso_msg_id(line)
-                has_end = bool(END_OF_MSG_RE.search(raw_msg))
-    
-                # Si no ha llegado el símbolo de fin, no reenviar aún; guarda parcial por ID si aplica
-                if not has_end:
-                    if qso_id:
-                        if not hasattr(self, "_qso_partial_by_id"):
-                            self._qso_partial_by_id = {}
-                        self._qso_partial_by_id[qso_id] = line
+                    # --- Fallback MINIMO para líneas del QSO window sin FROM/TO ---
+                    # Quita "[hh:mm:ss] -" o "hh:mm:ss -" y "- (id) -" si aparece
+                    #s = line.strip()
+                    #s = re.sub(r'^\s*(?:\[\d{2}:\d{2}:\d{2}\]|\d{2}:\d{2}:\d{2})\s*-\s*', '', s)
+                    #s = re.sub(r'^\s*[-–—]\s*\(\d+\)\s*[-–—]\s*', '', s)
+
+                    # Si no hay texto, nada que reenviar
+                    if not s:
+                        return False
+
+                    # ¿Contiene mi indicativo o algún alias?
+                    my_bases = {
+                        _base_callsign(x)
+                        for x in (_as_list(getattr(config, "MY_CALLSIGN", []))
+                                  + _as_list(getattr(config, "MY_ALIASES", [])))
+                        if isinstance(x, str) and x.strip()
+                    }
+                    tokens = re.findall(r'[A-Za-z0-9/+-]+', s.upper())
+                    has_me = any(_base_callsign(tok) in my_bases for tok in tokens)
+
+                    # Si es un HEARTBEAT general y no quieres reenviarlos, suprime
+                    if not getattr(config, "FORWARD_GENERAL_HB", True):
+                        if re.search(r'\bHEARTBEAT\b', s, re.I) and not has_me:
+                            return False
+
+                    # Reenviar sólo si me mencionan (evita HB ajenos)
+                    if has_me:
+                        # Evita eco si coincide con algo que acabas de TX
+                        msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", s).strip()
+                        try:
+                            if was_recently_sent("@HB", msg_clean) or any(was_recently_sent(x, msg_clean) for x in my_bases):
+                                return False
+                        except NameError:
+                            pass
+
+                        await send_to_telegram(t("rx_qso_line", line=line))
+                        return True
+
                     return False
     
                 # cuerpo limpio obligatorio
