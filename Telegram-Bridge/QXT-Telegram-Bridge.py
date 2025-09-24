@@ -1392,7 +1392,7 @@ class JS8TelegramBridge:
         # =======================
         STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = frm
     
-        await send_to_telegram(t("rx_generic", frm=frm, to=to, txt=txt))
+        await send_to_telegram(t("rx_qso_line", frm=frm, to=to, txt=txt))
 
     
 
