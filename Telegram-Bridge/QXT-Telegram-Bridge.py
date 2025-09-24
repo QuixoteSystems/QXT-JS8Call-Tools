@@ -1301,7 +1301,25 @@ class JS8TelegramBridge:
                 s = re.sub(r'^\s*(?:\[\d{2}:\d{2}:\d{2}\]|\d{2}:\d{2}:\d{2})\s*-\s*', '', s)
                 # quita "(id)" con o sin guiones alrededor
                 s = re.sub(r'^\s*(?:[-–—]?\s*\(\d+\)\s*[-–—]?\s*)', '', s)
-            
+              
+                # --- INICIO Caso especial "MI_CALLSIGN HEARTBEAT SNR ..." (sin FROM:TO) ---
+                tokens = s.split()
+                if tokens:
+                    my_bases = {
+                        _base_callsign(x)
+                        for x in (_as_list(getattr(config, "MY_CALLSIGN", []))
+                                  + _as_list(getattr(config, "MY_ALIASES", [])))
+                        if isinstance(x, str) and x.strip()
+                    }
+                    first = _base_callsign(tokens[0])
+                    second = (tokens[1].upper() if len(tokens) > 1 else "")
+                    # Si la línea empieza por mi indicativo y el siguiente token es HEARTBEAT → reenviar
+                    if first in my_bases and second == "HEARTBEAT":
+                        # No aplicamos FORWARD_GENERAL_HB aquí: es tu propio HB con SNR hacia ti
+                        await broadcast(t("rx_qso_line", line=line))
+                        return True
+                # --- FIN Caso especial ---
+
                 # intenta "FROM :/> TO MENSAJE" tras limpiar prefijos
                 m2 = re.match(r'^\s*([@A-Za-z0-9/+-]+)\s*[:>]\s*(@?[A-Za-z0-9/+-]{3,})\b\s*(.*)$', s)
                 if not m2:
