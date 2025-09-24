@@ -45,6 +45,6 @@ STRINGS = {
     "not_allowed": "Chat no autorizado.",
 
     # Pasarela
-    "rx_generic": "📡 JS8 ⟶ Telegram\nDe: {frm}\nPara: {to}\n\n{txt}",
+    "rx_generic": "🟢 Mensaje Recibido\nDe: {frm}\nPara: {to}\nMensaje: {txt}",
     "rx_qso_line": "🟢 Mensaje Recibido:\n{line}",
 }
