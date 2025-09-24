@@ -1227,195 +1227,116 @@ class JS8TelegramBridge:
                 all_my = my_aliases + my_calls
                 return any(_base_callsign(a) == base for a in all_my if isinstance(a, str) and a.strip())
     
+            # Dentro de on_js8_event(...), reemplaza COMPLETA esta función interna:
             async def _parse_and_maybe_forward(line: str, source: str) -> bool:
-                """Parsea una línea del QSO y la reenvía si procede; devuelve True si se envió."""
                 m = QSO_FROMTO_RE.match(line)
-                if not m:
-                    # --- Fallback mínimo para líneas del QSO window con ID delante ---
-                    s = line.strip()
-                    # quita hora si la hubiera
-                    s = re.sub(r'^\s*(?:\[\d{2}:\d{2}:\d{2}\]|\d{2}:\d{2}:\d{2})\s*-\s*', '', s)
-                    # quita variantes de "(id) -" o "- (id) -"
-                    s = re.sub(r'^\s*(?:[-–—]?\s*\(\d+\)\s*[-–—]?\s*)', '', s)
-                
-                    # intenta de nuevo extraer FROM: TO MENSAJE (ej. "233HA011: 21BILLY ...")
-                    m2 = re.match(r'^\s*([@A-Za-z0-9/+-]+)\s*[:>]\s*(@?[A-Za-z0-9/+-]{3,})\b\s*(.*)$', s)
-                    if m2:
-                        from_cs, to_tok, rest = m2.groups()
-                        from_cs = (from_cs or '').upper().strip()
-                        to_tok  = (to_tok  or '').strip()
-                        raw_msg = rest or ''
-                        msg_clean = re.sub(r'[♢◇♦♧♤♥]+$', '', raw_msg).strip()
-                
-                        # eco propio
-                        if is_me(from_cs):
+                if m:
+                    # --- Caso normal: hay FROM/TO ---
+                    from_tok, to_tok, raw_msg = m.groups()
+                    from_cs = (from_tok or "").strip().upper()
+                    to_tok  = (to_tok  or "").strip()
+                    raw_msg = (raw_msg or "")
+                    msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
+            
+                    # ID y final de mensaje
+                    qso_id = extract_qso_msg_id(line)
+                    has_end = bool(END_OF_MSG_RE.search(raw_msg))
+            
+                    # Espera símbolo de fin
+                    if not has_end:
+                        if qso_id:
+                            if not hasattr(self, "_qso_partial_by_id"):
+                                self._qso_partial_by_id = {}
+                            self._qso_partial_by_id[qso_id] = line
+                        return False
+            
+                    if not msg_clean:
+                        return False
+            
+                    # dedupe por ID
+                    if qso_id and was_id_forwarded(qso_id):
+                        return False
+            
+                    # eco propio
+                    if is_me(from_cs):
+                        return False
+            
+                    # destino soy yo o grupo vigilado
+                    if not to_is_me_or_monitored_group(to_tok):
+                        return False
+            
+                    # filtra HB generales si procede
+                    if not getattr(config, "FORWARD_GENERAL_HB", True):
+                        if _norm_group(to_tok) == "@HB" and re.search(r"\bHEARTBEAT\b", raw_msg, re.I):
                             return False
-                
-                        # solo si el destino soy yo o un grupo vigilado
-                        if not to_is_me_or_monitored_group(to_tok):
+            
+                    # anti-eco por contenido
+                    try:
+                        if was_recently_sent(to_tok, msg_clean):
                             return False
-                
-                        # si no quieres HB generales, filtra @HB + 'HEARTBEAT'
-                        if not getattr(config, "FORWARD_GENERAL_HB", True):
-                            if _norm_group(to_tok) == "@HB" and re.search(r'\bHEARTBEAT\b', raw_msg, re.I):
-                                return False
-                
-                        # anti-eco (ya enviado recientemente)
-                        try:
-                            if was_recently_sent(to_tok, msg_clean):
-                                return False
-                        except NameError:
-                            pass
-                
-                        # OK: guarda último corresponsal y reenvía
-                        STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = from_cs
-                        await send_to_telegram(t("rx_generic", frm=from_cs, to=to_tok, txt=raw_msg))
-                        return True
-                
-                    # Si no se pudo extraer FROM/TO, como último recurso puedes ignorar
+                    except NameError:
+                        pass
+            
+                    # dedupe literal inmediato
+                    if line == getattr(self, "_qso_last_forwarded", ""):
+                        return False
+            
+                    # OK, reenvía
+                    self._qso_last_forwarded = line
+                    await send_to_telegram(t("rx_qso_line", line=line))
+            
+                    # marca ID reenviado y limpia parcial
+                    if qso_id:
+                        remember_forwarded_id(qso_id)
+                        if hasattr(self, "_qso_partial_by_id"):
+                            self._qso_partial_by_id.pop(qso_id, None)
+            
+                    # guarda último FROM para /last
+                    STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = from_cs
+                    return True
+            
+                # --- Fallback: línea del QSO sin FROM/TO explícito (p.ej. "(1006) - 233HA011: 21BILLY ...") ---
+                s = line.strip()
+                # quita hora opcional
+                s = re.sub(r'^\s*(?:\[\d{2}:\d{2}:\d{2}\]|\d{2}:\d{2}:\d{2})\s*-\s*', '', s)
+                # quita "(id)" con o sin guiones alrededor
+                s = re.sub(r'^\s*(?:[-–—]?\s*\(\d+\)\s*[-–—]?\s*)', '', s)
+            
+                # intenta "FROM :/> TO MENSAJE" tras limpiar prefijos
+                m2 = re.match(r'^\s*([@A-Za-z0-9/+-]+)\s*[:>]\s*(@?[A-Za-z0-9/+-]{3,})\b\s*(.*)$', s)
+                if not m2:
                     return False
-
-    
-                # cuerpo limpio obligatorio
-                if not msg_clean:
+            
+                from_cs, to_tok, raw_msg = m2.groups()
+                from_cs = (from_cs or '').upper().strip()
+                to_tok  = (to_tok  or '').strip()
+                raw_msg = (raw_msg or '')
+                msg_clean = re.sub(r"[♢◇♦♧♤♥]+$", "", raw_msg).strip()
+            
+                # eco propio
+                if is_me(from_cs):
                     return False
-    
-                # PRIMERO dedupe por ID ya reenviado
-                if qso_id and was_id_forwarded(qso_id):
-                    return False
-    
-                # no eco propio
-                if _is_me_strict(from_cs):
-                    return False
-    
-                # destino debe ser yo o grupo vigilado
+            
+                # destino soy yo o grupo vigilado
                 if not to_is_me_or_monitored_group(to_tok):
                     return False
-    
-                # anti-eco (mismo TO + mismo cuerpo)
+            
+                # filtra HB generales si procede
+                if not getattr(config, "FORWARD_GENERAL_HB", True):
+                    if _norm_group(to_tok) == "@HB" and re.search(r"\bHEARTBEAT\b", raw_msg, re.I):
+                        return False
+            
+                # anti-eco
                 try:
                     if was_recently_sent(to_tok, msg_clean):
                         return False
                 except NameError:
                     pass
-    
-                # evita duplicado literal inmediato
-                if line == self._qso_last_forwarded:
-                    return False
-    
-                # Reenviar (mensaje completo con símbolo de fin)
-                self._qso_last_forwarded = line
-                await send_to_telegram(t("rx_qso_line", line=line))
-    
-                # Marca el ID como reenviado y limpia parcial
-                if qso_id:
-                    remember_forwarded_id(qso_id)
-                    if hasattr(self, "_qso_partial_by_id"):
-                        self._qso_partial_by_id.pop(qso_id, None)
-    
+            
+                # OK: guarda último corresponsal y reenvía
+                STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = from_cs
+                await send_to_telegram(t("rx_generic", frm=from_cs, to=to_tok, txt=raw_msg))
                 return True
-    
-            # ---- 1.a) Procesa SOLO las líneas nuevas completas (ya “desenvueltas”) ----
-            for raw in tail_lines:
-                line = raw.strip()
-                if not line:
-                    continue
-                await _parse_and_maybe_forward(line, "stable")
-    
-            # ---- 1.b) Línea final sin '\n' (en vivo) ----
-            if trailing:
-                if QSO_FROMTO_RE.match(trailing):
-                    if END_OF_MSG_RE.search(trailing):
-                        # Símbolo de fin presente: envía ya
-                        await _parse_and_maybe_forward(trailing, "trailing-immediate")
-                    else:
-                        # Pendiente hasta que llegue el símbolo
-                        self._qso_pending_text = trailing
-                        self._qso_pending_since = time.time()
-                else:
-                    self._qso_pending_text = ""
-                    self._qso_pending_since = 0.0
-            else:
-                self._qso_pending_text = ""
-                self._qso_pending_since = 0.0
-    
-            return  # fin RX.TEXT
-    
-        # ====== 2) RX.CALL_ACTIVITY → heard list ======
-        if isinstance(evt, dict) and evt.get("type") == "RX.CALL_ACTIVITY":
-            try:
-                params = evt.get("params")
-                added = 0
-                if isinstance(params, dict):
-                    # Si las claves parecen indicativos → mapa de callsigns
-                    keys = [k for k in params.keys() if isinstance(k, str) and not k.startswith("_")]
-                    if keys and not all(k.isdigit() for k in keys):
-                        added = update_heard_from_params_calls_map(params)
-                    else:
-                        # Algunas builds devuelven offsets aquí
-                        added = update_heard_from_params_offsets_map(params)
-                else:
-                    # Fallback por si viene en 'value'
-                    update_heard_from_call_activity(evt.get("value"))
-                logger.debug(f"CALL_ACTIVITY: +{added}, total={len(STATE.heard)}")
-            except Exception as ex:
-                logger.debug(f"CALL_ACTIVITY parse error: {ex}")
-            finally:
-                return
-    
-        # ====== 3) RX.BAND_ACTIVITY → heard list ======
-        if isinstance(evt, dict) and evt.get("type") == "RX.BAND_ACTIVITY":
-            try:
-                params = evt.get("params")
-                added = 0
-                if isinstance(params, dict):
-                    added = update_heard_from_params_offsets_map(params)
-                else:
-                    update_heard_from_call_activity(evt.get("value"))
-                logger.debug(f"BAND_ACTIVITY: +{added}, total={len(STATE.heard)}")
-            except Exception as ex:
-                logger.debug(f"BAND_ACTIVITY parse error: {ex}")
-            finally:
-                return
-    
-        # ====== 4) RX.SPOT → heard list (opcional) ======
-        if isinstance(evt, dict) and evt.get("type") == "RX.SPOT":
-            try:
-                spot = parse_rx_spot(evt)
-                if spot and isinstance(spot.get("callsign"), str):
-                    STATE.heard[spot["callsign"]] = spot
-                    logger.debug(f"RX.SPOT: +{spot['callsign']} snr={spot.get('snr')} grid={spot.get('grid')}")
-            except Exception as ex:
-                logger.debug(f"RX.SPOT parse error: {ex}")
-            finally:
-                return
-    
-        # ====== 5) Reenvío genérico (otros eventos con FROM/TO/TEXT) ======
-        try:
-            triplet = extract_from_to_text(evt)
-        except Exception:
-            triplet = None
-        if not triplet:
-            return
-    
-        frm, to, txt = triplet
-        basef = _base_callsign(frm)
-        if any(_base_callsign(a) == basef for a in _as_list(getattr(config, "MY_ALIASES", [])) + _as_list(getattr(config, "MY_CALLSIGN", []))):
-            return
-        if not to_is_me_or_monitored_group(to):
-            return
-        try:
-            if was_recently_sent(to, txt):
-                return
-        except NameError:
-            pass
-
-        # =======================
-        # FIX: recuerda el último corresponsal para /last
-        # =======================
-        STATE.last_from_per_chat[config.TELEGRAM_CHAT_ID] = frm
-    
-        await send_to_telegram(t("rx_generic", frm=frm, to=to, txt=txt))
 
     
 
