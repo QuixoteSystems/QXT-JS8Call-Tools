@@ -1146,7 +1146,7 @@ class JS8TelegramBridge:
         QSO_FROMTO_RE = re.compile(
             r'^\s*'
             r'(?:\[\d{2}:\d{2}:\d{2}\]\s*|\d{2}:\d{2}:\d{2}\s*)?'   # [11:22:12] o 11:22:12
-            r'(?:[-–—]\s*\(\d+\)\s*[-–—]\s*)?'                     # - (1546) - (opcional)
+            r'(?:[-–—]?\s*\(\d+\)\s*[-–—]?\s*)?'# - (1546) - (opcional)
             r'([@A-Za-z0-9/+-]+)\s*[:>]\s*'                        # FROM
             r'(@?[A-Za-z0-9/+-]{3,})\b\s*'                         # TO
             r'(.*)$'                                               # MENSAJE (puede ser vacío)
@@ -1249,7 +1249,7 @@ class JS8TelegramBridge:
                 has_end = bool(END_OF_MSG_RE.search(raw_msg))
     
                 # Si no ha llegado el símbolo de fin, no reenviar aún; guarda parcial por ID si aplica
-                if not has_end:
+                if str(source).startswith("trailing") and not has_end:
                     if qso_id:
                         if not hasattr(self, "_qso_partial_by_id"):
                             self._qso_partial_by_id = {}
