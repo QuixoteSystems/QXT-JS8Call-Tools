@@ -8,7 +8,7 @@ Python Script to send a periodic SNR? to a group (with an immediate first TX), s
 ### Run the script
 2- Simple run with examples parameters:
 ```python
-python3 QXT-SNR-Beacon.py --group QXTNET --minutes 30 --transport TCP --host 127.0.0.1 --port 2442
+python3 QXT-SNR-Beacon.py --group QXTNET --minutes 60 --transport TCP --host 127.0.0.1 --port 2442
 ```
 
 ### Setup as Service (Linux)
