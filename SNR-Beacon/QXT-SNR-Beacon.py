@@ -33,7 +33,7 @@ def send_js8(text, host="127.0.0.1", port=2442, transport="TCP", timeout=10):
             return True
         except Exception:
             return False
-           finally:
+        finally:
             s.close()
     else:  # TCP by default
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
