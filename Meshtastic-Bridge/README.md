@@ -1,6 +1,6 @@
 # QXT Meshtastic Bridge
 
-It connects to JS8Call’s TCP JSON API and a Meshtastic Node, forwards any received JS8Call messages addressed to your callsign or your monitored groups to a chosen Meshtatic Node, and lets you transmit back from Meshtastic using simple commands:
+It connects to JS8Call’s TCP/UDP JSON API with a Meshtastic Node, forwards any received JS8Call messages addressed to your callsign or your monitored groups to a chosen Meshtatic Node, and lets you transmit back from Meshtastic using simple commands:
 
 
 ## Options
@@ -99,42 +99,44 @@ Prefix prepended to messages going from JS8 to Mesh (helps avoid loops/echo):
 
 ### ACK handling (Mesh side)
 
---want-ack (flag)
-When sending to a specific node on Meshtastic, request an ACK and track its timeout.
+When sending to a specific node on Meshtastic, request an ACK and track its timeout:
+```--want-ack``` (flag)
 
---ack-timeout (default: 30, seconds)
-How long to wait before declaring an ACK timeout in the log.
+How long to wait before declaring an ACK timeout in the log:
+```--ack-timeout``` (default: 30, seconds)
 
 ### M2J targeting & filtering (Mesh → JS8)
 
---m2j-to (default: @ALLCALL)
 Where mesh messages go in JS8 by default:
+```--m2j-to``` (default: @ALLCALL)
 
 @ALLCALL → “free text” broadcast (tries API ALLCALL, then UI fallback)
 
 CALLSIGN → directed message to that JS8 station (TX.SEND_MESSAGE)
 
---m2j-prefix (default: [mesh] )
-Prefix added to text forwarded from Mesh to JS8 (for context/loop-avoidance).
+Prefix added to text forwarded from Mesh to JS8 (for context/loop-avoidance):
+```--m2j-prefix``` (default: [mesh] )
 
---m2j-maxlen (default: 200, int)
-Max characters for forwarded mesh text (longer texts are truncated with …).
+Max characters for forwarded mesh text (longer texts are truncated with …):
+```--m2j-maxlen``` (default: 200, int)
 
---m2j-allow-self (flag)
-Allow forwarding packets you originated yourself (by default, self-messages are suppressed).
+Allow forwarding packets you originated yourself (by default, self-messages are suppressed):
+```--m2j-allow-self``` (flag)
 
---m2j-only-from (default: none; space-separated list)
 Only accept mesh messages from certain senders. Each token can be:
 
-!NodeId (full ID), hex suffix like EF01 (matches node IDs ending in that suffix), a ShortName (e.g., QXT6).
+!NodeId (full ID), hex suffix like EF01 (matches node IDs ending in that suffix), a ShortName (e.g., NOD1).
 
---m2j-escape-at (flag)
+```--m2j-only-from (default: none; space-separated list)```
+
 Special handling: if a mesh text starts with @@CALL …, it becomes a literal @CALL … free text in JS8 (i.e., it will not be treated as directed; one @ is “escaped”).
+```--m2j-escape-at``` (flag)
 
 ###Logging
 
---log-level (default: INFO, choices: DEBUG|INFO|WARNING|ERROR)
+
 Global verbosity for the whole bridge.
+```--log-level (default: INFO, choices: DEBUG|INFO|WARNING|ERROR)```
 
 How routing works (quick mental model)
 
@@ -156,7 +158,7 @@ Else to the default destination (any of dest-id / dest-shortname / channel-index
 
 ### Mesh → JS8 (M2J)
 
-If the mesh text starts with @@CALL … and --m2j-escape-at is on → send literal @CALL … as free text.
+If the mesh text starts with @@CALL … and ```--m2j-escape-at``` is on → send literal @CALL … as free text.
 
 Else if it starts with @CALL … → send a directed JS8 message to CALL, body is the remainder.
 
