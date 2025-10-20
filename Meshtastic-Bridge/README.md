@@ -191,9 +191,9 @@ The forwarded message is built as "{prefix} {FROM}: @{tag} {body}" or, with --st
 
 It is then sent to:
 
-Every --route-node TAG=… match (direct to node),
+Every --route-node TAG=... match (direct to node),
 
-Every --route-chan TAG=… match (to channel),
+Every --route-chan TAG=... match (to channel),
 
 Else to the default destination (any of dest-id / dest-shortname / channel-index / channel-name if provided).
 
@@ -209,7 +209,7 @@ Else → send as free (@ALLCALL) or directed per --m2j-to.
 
 Basic both-ways bridge over TCP Meshtastic, broadcast to JS8 ALLCALL
 ```
-python bridge.py \
+python js8static.py \
   --meshtastic-host 192.168.1.50:4403 \
   --enable-j2m true --enable-m2j true \
   --m2j-to @ALLCALL --log-level INFO
@@ -217,7 +217,7 @@ python bridge.py \
 
 Route JS8 @ops to channel “Operations” and @base directly to node shortname QXT3
 ```
-python bridge.py \
+python js8static.py \
   --meshtastic-host 192.168.1.50 \
   --route-chan ops=Operations \
   --route-node base=QXT3
@@ -225,7 +225,7 @@ python bridge.py \
 
 Only accept mesh messages from node suffix EF01 and literal-escape @@CALL
 ```
-python bridge.py \
+python js8static.py \
   --meshtastic-host 192.168.1.50 \
   --m2j-only-from EF01 \
   --m2j-escape-at
@@ -233,7 +233,7 @@ python bridge.py \
 
 Default J2M target: channel index 0, strip the tag, and request ACKs to a specific node
 ```
-python bridge.py \
+python js8static.py \
   --meshtastic-host 192.168.1.50 \
   --only-tag alert --strip-tag \
   --dest-id !ABCD1234 --want-ack --ack-timeout 45
