@@ -55,22 +55,35 @@ Background “liveness” pings to keep the TCP sender healthy and reconnect if 
 ### Meshtastic connection
 
 Serial device path for direct Meshtastic connection (e.g., /dev/ttyUSB0, COM6). If provided, it’s used instead of TCP:
-```--meshtastic-serial (default: None)```
+```
+--meshtastic-serial (default: None)
+```
 
 Connects to Meshtastic over TCP to that node. Required if --meshtastic-serial is not set:
-```--meshtastic-host (default: None, format: IP[:PORT], default port 4403)```
+```
+--meshtastic-host (default: None, format: IP[:PORT], default port 4403)
+```
 
 
 ### Routing rules (JS8 → Mesh)
 
 For JS8 texts containing @TAG, also send to the specified Meshtastic channel (name or index).
-``` --route-chan TAG=ChannelName|Index``` (repeatable)
-Example: ```--route-chan alert=0 --route-chan ops=Operations```
+```
+--route-chan TAG=ChannelName|Index (repeatable)
+```
+
+Example: 
+```--route-chan alert=0 --route-chan ops=Operations```
 
 
 For JS8 texts containing @TAG, also send direct to a node (by ShortName or explicit !NodeId):
-```--route-node TAG=ShortName|!Id``` (repeatable)
-Example: ```--route-node qxt=QXT3 --route-node base=!ABCD1234```
+```
+--route-node TAG=ShortName|!Id (repeatable)
+```
+Example:
+```
+--route-node nod1=NOD1 --route-node base=!ABCD1234
+```
 
 
 ### J2M filtering and formatting (JS8 → Mesh)
