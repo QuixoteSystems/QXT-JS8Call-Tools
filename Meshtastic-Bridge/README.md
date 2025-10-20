@@ -89,49 +89,73 @@ Example:
 ### J2M filtering and formatting (JS8 → Mesh)
 
 Only forward JS8 texts that contain this @TAG (case-insensitive). Others are ignored:
-```--only-tag (default: None)```
+```
+--only-tag (default: None)
+```
 
 When forwarding, remove the @TAG from the message body instead of keeping it:
-```--strip-tag (flag)```
+```
+--strip-tag (flag)
+```
 
 Default Meshtastic destination node ID (!Id) for JS8 texts when no routing rule matches:
-```--dest-id (default: None)```
+```
+--dest-id (default: None)
+```
 
 Default Meshtastic destination by ShortName (resolved to node ID) for JS8 texts:
-```--dest-shortname (default: None)```
+```
+--dest-shortname (default: None)
+```
 
 Default channel index to post into when no routing rule matches:
-```--channel-index (default: None, int)```
+```
+--channel-index (default: None, int)
+```
 
 Default channel name to post into when no routing rule matches:
-```--channel-name (default: None)```
+```
+--channel-name (default: None)
+```
 
 Prefix prepended to messages going from JS8 to Mesh (helps avoid loops/echo):
-```--prefix (default: [JS8])```
+```
+--prefix (default: [JS8])
+```
 
 
 ### ACK handling (Mesh side)
 
 When sending to a specific node on Meshtastic, request an ACK and track its timeout:
-```--want-ack``` (flag)
+```
+--want-ack (flag)
+``` 
 
 How long to wait before declaring an ACK timeout in the log:
-```--ack-timeout``` (default: 30, seconds)
+```
+--ack-timeout (default: 30, seconds)
+```
 
 ### M2J targeting & filtering (Mesh → JS8)
 
 Where mesh messages go in JS8 by default:
-```--m2j-to``` (default: @ALLCALL)
+```
+--m2j-to (default: @ALLCALL)
+```
 
 @ALLCALL → “free text” broadcast (tries API ALLCALL, then UI fallback)
 
 CALLSIGN → directed message to that JS8 station (TX.SEND_MESSAGE)
 
 Prefix added to text forwarded from Mesh to JS8 (for context/loop-avoidance):
-```--m2j-prefix``` (default: [mesh] )
+```
+--m2j-prefix (default: [mesh] )
+```
 
 Max characters for forwarded mesh text (longer texts are truncated with …):
-```--m2j-maxlen``` (default: 200, int)
+```
+--m2j-maxlen (default: 200, int)
+```
 
 Allow forwarding packets you originated yourself (by default, self-messages are suppressed):
 ```--m2j-allow-self``` (flag)
@@ -140,10 +164,14 @@ Only accept mesh messages from certain senders. Each token can be:
 
 !NodeId (full ID), hex suffix like EF01 (matches node IDs ending in that suffix), a ShortName (e.g., NOD1).
 
-```--m2j-only-from (default: none; space-separated list)```
+```
+--m2j-only-from (default: none; space-separated list)
+```
 
 Special handling: if a mesh text starts with @@CALL …, it becomes a literal @CALL … free text in JS8 (i.e., it will not be treated as directed; one @ is “escaped”).
-```--m2j-escape-at``` (flag)
+```
+--m2j-escape-at (flag)
+```
 
 ###Logging
 
