@@ -207,6 +207,15 @@ Else → send as free (@ALLCALL) or directed per --m2j-to.
 
 ## Practical examples:
 
+Bridging JS8Call to Meshtastic and viceversa, using TCP/IP for JS8Call station and for the Meshstastic node:
+```
+python bridge.py --enable-j2m true --enable-m2j true \
+  --meshtastic-host 192.168.1.11:4403 --m2j-to "@11ABC11" \
+  --m2j-prefix "[mesh] " --m2j-only-from NOD1  --js8-host 127.0.0.1 \
+  --js8-port 2442 --route-node nod1=NOD1 --want-ack --m2j-escape-at --log-level INFO
+```
+
+
 Basic both-ways bridge over TCP Meshtastic, broadcast to JS8 ALLCALL
 ```
 python js8static.py \
