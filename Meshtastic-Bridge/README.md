@@ -5,7 +5,7 @@ It connects to JS8Call’s TCP/UDP JSON API with a Meshtastic Node, forwards any
 ![Logo](JS8tastic.png)
 
 
-## Options
+## Flag Options
 ### Core switches
 
 Enables the JS8 → Meshtastic direction. If false, JS8 messages are ignored:
