@@ -20,7 +20,7 @@ Scripts:
 
 - [Frequency-Scheduler](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/tree/main/Frequency-Scheduler): change the frequency of your radio automactically on a scheduled schedule. (Obsiously it needs CAT control configured in JS8Call).
 
-- [Meshtastic-Bridge](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/tree/main/Meshtastic-Bridge): sending and receiving messages from/to meshtastic nodes or channels from/to JS8Call stations. Easy way to bridging local mesh or out of range lora nodes.
+- [Meshtastic-Bridgen (JS8stastic)](https://github.com/QuixoteSystems/QXT-JS8Call-Tools/tree/main/Meshtastic-Bridge): sending and receiving messages from/to meshtastic nodes or channels from/to JS8Call stations. Easy way to bridging local mesh or out of range lora nodes.
 
 - Simple-Chat: work in progress...
 
