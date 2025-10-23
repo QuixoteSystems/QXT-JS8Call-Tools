@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 
+JS8tastic
 Quixote Systems 2025
 
 JS8Call ⇄ Meshtastic BRIDGE (bidireccional, multi-ruta, ACK opcional)
