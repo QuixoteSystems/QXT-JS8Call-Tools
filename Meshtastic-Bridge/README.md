@@ -1,9 +1,8 @@
 # QXT Meshtastic Bridge (JS8stastic)
 
+It connects to JS8Call’s TCP/UDP JSON API with a Meshtastic Node, forwards any received JS8Call messages addressed to your callsign or your monitored groups to a chosen Meshtatic Node, and lets you transmit back from Meshtastic using simple commands.
 
 ![Logo](JS8stastic-Network.png)
-
-It connects to JS8Call’s TCP/UDP JSON API with a Meshtastic Node, forwards any received JS8Call messages addressed to your callsign or your monitored groups to a chosen Meshtatic Node, and lets you transmit back from Meshtastic using simple commands:
 
 
 ## Options
