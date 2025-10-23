@@ -211,7 +211,7 @@ Else → send as free (@ALLCALL) or directed per --m2j-to.
 
 Bridging JS8Call to Meshtastic and viceversa, using TCP/IP for JS8Call station and for the Meshstastic node:
 ```
-python bridge.py --enable-j2m true --enable-m2j true \
+python js8tatic.py --enable-j2m true --enable-m2j true \
   --meshtastic-host 192.168.1.11:4403 --m2j-to "@11ABC11" \
   --m2j-prefix "[mesh] " --m2j-only-from NOD1  --js8-host 127.0.0.1 \
   --js8-port 2442 --route-node nod1=NOD1 --want-ack --m2j-escape-at --log-level INFO
@@ -220,7 +220,7 @@ python bridge.py --enable-j2m true --enable-m2j true \
 
 Basic both-ways bridge over TCP Meshtastic, broadcast to JS8 ALLCALL
 ```
-python js8static.py \
+python js8tatic.py \
   --meshtastic-host 192.168.1.50:4403 \
   --enable-j2m true --enable-m2j true \
   --m2j-to @ALLCALL --log-level INFO
@@ -228,7 +228,7 @@ python js8static.py \
 
 Route JS8 @ops to channel “Operations” and @base directly to node shortname QXT3
 ```
-python js8static.py \
+python js8tatic.py \
   --meshtastic-host 192.168.1.50 \
   --route-chan ops=Operations \
   --route-node base=QXT3
@@ -236,7 +236,7 @@ python js8static.py \
 
 Only accept mesh messages from node suffix EF01 and literal-escape @@CALL
 ```
-python js8static.py \
+python js8tatic.py \
   --meshtastic-host 192.168.1.50 \
   --m2j-only-from EF01 \
   --m2j-escape-at
@@ -244,7 +244,7 @@ python js8static.py \
 
 Default J2M target: channel index 0, strip the tag, and request ACKs to a specific node
 ```
-python js8static.py \
+python js8tatic.py \
   --meshtastic-host 192.168.1.50 \
   --only-tag alert --strip-tag \
   --dest-id !ABCD1234 --want-ack --ack-timeout 45
